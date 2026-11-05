@@ -314,8 +314,8 @@ path's answer is used.
   test; then fine-tuning on real examples in batches the owner reviews. Weights stay
   under `data/`, never committed or shared, and each retrain earns trust again
   (NEW-CU).
-- Which pilot point goes first; the recommendation is past questions (low risk, an
-  existing regex to compare with, and paraphrases it misses today).
+- ~~Which pilot point goes first.~~ Owner, 2026-11-05: questions about the past
+  (`conversation.asks_about_past`).
 
 ## Sources
 
