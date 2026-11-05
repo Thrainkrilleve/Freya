@@ -11,6 +11,7 @@ import argparse
 import json
 import math
 import statistics
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,11 +19,12 @@ from typing import Dict, List, Sequence
 
 from freya.decider.contract import DecisionError, checked_decision
 from freya.decider.points import POINTS
+from freya.decider.laya_decider import LayaDecider
 from freya.decider.rules import RulesDecider
 from freya.evaluation.decision_sets import SETS, Example
 
 
-DECIDERS = {"rules": RulesDecider}
+DECIDERS = {"rules": RulesDecider, "laya": LayaDecider}
 CALIBRATION_BINS = 10
 SPLITS = ("all", "train", "held-out")
 
@@ -47,6 +49,10 @@ def decide_all(decider, examples: Sequence[Example]) -> List[dict]:
             decision = checked_decision(point, distribution, decider.decider_id, elapsed)
         except DecisionError as exc:
             rows.append({"text": example.text, "label": example.label, "error": str(exc)})
+            continue
+        except Exception as exc:
+            # A decider that failed is an error, kept apart from a wrong answer.
+            rows.append({"text": example.text, "label": example.label, "error": type(exc).__name__})
             continue
         rows.append({
             "text": example.text,
@@ -151,6 +157,15 @@ def main(argv=None):
         parser.error("The output file already exists; choose a new file.")
 
     decider = DECIDERS[args.decider]()
+
+    if not decider.ready():
+        print(
+            f"The {args.decider} decider is not installed. "
+            f"Set it up with: python -m freya.decider.install {args.decider}",
+            file=sys.stderr,
+        )
+        return 2
+
     results = measure(decider, points, args.split)
     report = {
         "schema_version": 1,
@@ -164,6 +179,10 @@ def main(argv=None):
     if args.output is not None:
         with args.output.open("x", encoding="utf-8") as output:
             json.dump(report, output, indent=2)
+
+    stop = getattr(decider, "stop", None)
+    if stop is not None:
+        stop()
 
     for name, result in results.items():
         s = result["summary"]

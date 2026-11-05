@@ -342,3 +342,169 @@ def test_the_runner_writes_a_report_and_never_overwrites_one(tmp_path, capsys):
 
     with pytest.raises(SystemExit):
         decisions.main(["--output", str(report)])
+
+
+# --- Laya, through its helper ---
+
+
+from freya.decider import laya_decider  # noqa: E402
+from freya.decider.laya_decider import (  # noqa: E402
+    LAYA_REVISION,
+    LayaDecider,
+    laya_question,
+    mostly_latin,
+)
+
+
+class FakeHelper:
+    def __init__(self, reply):
+        self.reply = reply
+        self.requests = []
+        self.stopped = False
+
+    def request(self, message, timeout=None):
+        self.requests.append(message)
+        return {"ok": True, **self.reply}
+
+    def stop(self):
+        self.stopped = True
+
+
+def test_a_yes_no_point_is_asked_as_layas_true_or_false_question():
+    helper = FakeHelper({"p_true": 0.93})
+    decider = LayaDecider(helper=helper, installed=lambda: True)
+
+    distribution = decider.decide(PAST_QUESTION, "Did we ever talk about the trip?")
+
+    assert distribution == {NO: pytest.approx(0.07), YES: pytest.approx(0.93)}
+    sent = helper.requests[0]
+    assert sent["op"] == "decide" and sent["question"]["type"] == "noul"
+    assert sent["question"]["instructions"] == PAST_QUESTION.question.wording
+
+
+def test_a_choice_point_gets_every_option_back_by_name():
+    probabilities = {kind: 0.0 for kind in TASK_KIND.question.options}
+    probabilities["planning"] = 1.0
+    decider = LayaDecider(helper=FakeHelper({"probabilities": probabilities}), installed=lambda: True)
+
+    decision = checked_decision(TASK_KIND, decider.decide(TASK_KIND, "Plan my week."), "laya", 1.0)
+
+    assert decision.answer == "planning"
+    assert set(laya_question(TASK_KIND)["criteria"]) == set(TASK_KIND.question.options)
+
+
+def test_an_answer_missing_an_option_is_refused():
+    decider = LayaDecider(helper=FakeHelper({"probabilities": {"planning": 1.0}}), installed=lambda: True)
+
+    with pytest.raises(KeyError):
+        decider.decide(TASK_KIND, "Plan my week.")
+
+
+def test_text_mostly_outside_the_latin_alphabet_goes_to_the_fallback():
+    helper = FakeHelper({"p_true": 0.99})
+    decider = LayaDecider(helper=helper, installed=lambda: True)
+
+    assert not mostly_latin("你还记得我说过什么吗")
+    assert decider.decide(PAST_QUESTION, "你还记得我说过什么吗") is None
+    assert helper.requests == []
+
+
+def test_laya_is_not_ready_until_it_is_installed():
+    assert not LayaDecider(installed=lambda: False).ready()
+
+
+def test_laya_runs_offline_from_the_one_reviewed_commit(tmp_path, monkeypatch):
+    helper = laya_decider._default_helper()
+
+    assert helper._environment["HF_HUB_OFFLINE"] == "1"
+    assert helper._environment["LAYA_REVISION"] == LAYA_REVISION
+    assert len(LAYA_REVISION) == 40
+
+
+def test_the_laya_worker_does_not_import_freya():
+    worker = Path(laya_decider.WORKERS_DIR) / "laya_worker.py"
+    tree = ast.parse(worker.read_text(encoding="utf-8"))
+    names = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ImportFrom) and node.module:
+            names.add(node.module.split(".")[0])
+        elif isinstance(node, ast.Import):
+            names.update(alias.name.split(".")[0] for alias in node.names)
+
+    assert "freya" not in names
+
+
+def test_a_failing_helper_is_an_error_in_the_measurement_not_a_crash():
+    class Broken:
+        decider_id = "broken"
+
+        def decide(self, point, state):
+            raise RuntimeError("helper died")
+
+    rows = decisions.decide_all(Broken(), SETS[PAST_QUESTION.name][:2])
+
+    assert all(row["error"] == "RuntimeError" for row in rows)
+
+
+def test_the_runner_says_how_to_install_a_decider_that_is_missing(monkeypatch, capsys):
+    monkeypatch.setitem(decisions.DECIDERS, "laya", lambda: LayaDecider(installed=lambda: False))
+
+    assert decisions.main(["--decider", "laya"]) == 2
+    assert "python -m freya.decider.install laya" in capsys.readouterr().err
+
+
+STUB_TORCH = '''
+import contextlib
+class cuda:
+    @staticmethod
+    def is_available():
+        return False
+def manual_seed(seed):
+    pass
+def inference_mode():
+    return contextlib.nullcontext()
+'''
+
+STUB_LAYA = '''
+class _Agent:
+    def system_one(self, state, questions):
+        q = questions["q"]
+        if q["type"] == "noul":
+            return {"answers": {"q": {"noul": 0.8 if "ever" in state else 0.1}}}
+        keys = list(q["criteria"])
+        return {"answers": {"q": {"probabilities": {k: (1.0 if i == 0 else 0.0) for i, k in enumerate(keys)}}}}
+def load(name, device=None, revision=None):
+    assert revision
+    return _Agent()
+'''
+
+
+def test_the_laya_worker_speaks_one_json_line_per_request(tmp_path):
+    import os
+    import subprocess
+    import sys
+
+    (tmp_path / "torch.py").write_text(STUB_TORCH, encoding="utf-8")
+    (tmp_path / "laya.py").write_text(STUB_LAYA, encoding="utf-8")
+    worker = Path(laya_decider.WORKERS_DIR) / "laya_worker.py"
+    requests = "\n".join([
+        json.dumps({"op": "decide", "state": "Did we ever?", "question": laya_question(PAST_QUESTION)}),
+        json.dumps({"op": "decide", "state": "Plan it.", "question": laya_question(TASK_KIND)}),
+        json.dumps({"op": "unknown"}),
+    ]) + "\n"
+    env = {**os.environ, "PYTHONPATH": str(tmp_path), "LAYA_REVISION": LAYA_REVISION}
+
+    done = subprocess.run(
+        [sys.executable, str(worker)], input=requests, capture_output=True,
+        text=True, env=env, timeout=30,
+    )
+    answers = [json.loads(line) for line in done.stdout.splitlines()]
+
+    assert answers[0]["ready"]
+    assert answers[1] == {"ok": True, "p_true": 0.8}
+    assert distribution_from_reply(TASK_KIND, answers[2])[TASK_KIND.question.options[0]] == 1.0
+    assert answers[3] == {"ok": False, "error": "ValueError"}
+
+
+def distribution_from_reply(point, reply):
+    return laya_decider.distribution_from(point, reply)

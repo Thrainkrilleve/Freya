@@ -595,7 +595,14 @@ the text decided about never goes in an error message, because the message reach
 the audit log; `decide` is not registered by `build_local_control_plane`, is in no
 policy seed and is not a model tool. `python -m freya.evaluation.decisions` measures
 a decider on the synthetic labelled sets in `evaluation/decision_sets.py` (labels
-not yet checked by the owner; the held-out split is fixed by hash).
+not yet checked by the owner; the held-out split is fixed by hash). Laya's English
+checkpoint is a second decider (`laya_decider.py`), run as a helper in its own
+environment under `data/decider_envs/` with weights in `data/decider_models/`,
+pinned to one commit and loaded with the hub offline; `python -m
+freya.decider.install laya` sets it up (owner action, about 3 GB). Never install it
+into `.venv`; its worker must not import `freya` and returns only numbers or an
+error type, never the text. Text mostly outside the Latin alphabet goes to the
+fallback, because the English checkpoint is confidently wrong on it.
 
 `python -m freya.evaluation.delegation` measures a model on 91 synthetic delegated
 tasks in eight kinds (`evaluation/delegation_tasks.py`), each with a deterministic

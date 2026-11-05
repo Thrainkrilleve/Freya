@@ -292,7 +292,10 @@ path's answer is used.
    `freya.evaluation.decisions` with labelled synthetic sets for three pilot points:
    past questions, memory worth saving, and memory relationship. Testable in CI; no
    model needed.
-2. **Laya in shadow.** Its environment and helper, installed by the owner like a speech
+2. **Laya in shadow** (helper built, 2026-11-05, not yet run: `decider/laya_decider.py`,
+   `decider/workers/laya_worker.py`, `python -m freya.decider.install laya`; weights
+   pinned to the commit Laya's authors list as reviewed; the cloud machine that wrote
+   it cannot reach Hugging Face, so the first real numbers come from the owner's PC). Its environment and helper, installed by the owner like a speech
    engine; a measurement run on the 4090.
 3. **Freya's decider.** Fine-tuning and calibration scripts; a second measurement;
    switch a pilot point live only if it meets §5.
