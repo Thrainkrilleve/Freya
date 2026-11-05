@@ -283,7 +283,11 @@ path's answer is used.
 
 ## 8. Order of work
 
-1. **Contract and runner.** The `decide` capability with a rules-only provider (the
+1. **Contract and runner** (built, 2026-11-05: `src/freya/decider/`,
+   `evaluation/decisions.py`, `evaluation/decision_sets.py`; the rules decider on the
+   held-out and training sets together answered 26 of 36 past questions and 14 of 20
+   picture requests correctly, missing only reworded requests, with no false yes).
+   The `decide` capability with a rules-only provider (the
    existing regexes behind the new contract), the shadow log, and
    `freya.evaluation.decisions` with labelled synthetic sets for three pilot points:
    past questions, memory worth saving, and memory relationship. Testable in CI; no
@@ -300,8 +304,16 @@ path's answer is used.
 - ~~Adopt the contract and the "choose, never authorize" rule (NEW-CI, NEW-CL).~~
   Owner, 2026-11-05: yes for now, with a path to earned approval authority (§4.3a,
   NEW-CU). Still provisional until reconciliation.
-- Start from Laya's Apache 2.0 weights, or from the bare ModernBERT base.
-- Whether the decider may ever train on real conversations and memories (NEW-CR).
+- ~~Start from Laya's Apache 2.0 weights, or from the bare ModernBERT base.~~
+  Owner, 2026-11-05: fine-tune both on the same data and keep whichever scores better
+  on Freya's held-out sets (stage 2 of §4.6).
+- ~~Whether the decider may ever train on real conversations and memories (NEW-CR).~~
+  Owner, 2026-11-05: yes, eventually, with review. The aim is a decider that learns
+  from the owner's own conversations how the owner wants things decided. Order:
+  synthetic training first; then shadow runs on real conversations used only as a
+  test; then fine-tuning on real examples in batches the owner reviews. Weights stay
+  under `data/`, never committed or shared, and each retrain earns trust again
+  (NEW-CU).
 - Which pilot point goes first; the recommendation is past questions (low risk, an
   existing regex to compare with, and paraphrases it misses today).
 
