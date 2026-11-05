@@ -157,7 +157,7 @@ Proposed modules: `core/persona.py`, `core/context/builder.py`,
 | UIA-11 | Hallucinated tool result | Claimed tool run absent from the journal is rejected |
 | UIA-12 | Memory provenance | Document-sourced claim never overwrites a stated fact |
 | UIA-13 | Latency | p50 first token < 1.5 s, p95 < 4 s, model warm |
-| UIA-14 | Audit completeness | Decision, dispatch and outcome rows for every invocation; chain verifies |
+| UIA-14 | Audit completeness | Dispatch (carrying the allow decision) and outcome rows for every allowed invocation, a decision row for every denial or unavailability; chain verifies (amended by the owner, 2026-11-04) |
 
 UIA-14 can be written now against existing code.
 

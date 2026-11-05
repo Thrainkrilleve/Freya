@@ -4,6 +4,10 @@ verifiable audit trail, and no record holds what was asked.
 
 Each case runs through the real broker on a temporary control
 database; Ollama is the fake from conftest.
+
+As amended by the owner (2026-11-04), the dispatch row is the record
+of an allow decision: an allowed call leaves a dispatch and an outcome,
+and only denials and unavailability leave a separate decision row.
 """
 
 import json
@@ -142,22 +146,6 @@ def test_streams_record_how_they_ended(plane):
     }
     assert outcomes["stream consumed"] == "succeeded"
     assert outcomes["stream abandoned"] == "failed-known"
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason=(
-        "UIA-14 as drafted asks for a separate 'decision' row for allowed "
-        "invocations; the broker records the allow decision on the "
-        "dispatch row instead and writes 'decision' rows only for "
-        "denials and unavailability."
-    ),
-)
-def test_each_allowed_invocation_has_a_separate_decision_row(plane):
-    for label, operation_id in run_allowed_cases(plane):
-        assert kinds(rows_for(plane, operation_id)) == [
-            "decision", "dispatch", "outcome",
-        ], label
 
 
 def test_a_denied_call_is_recorded_and_never_dispatched(plane):
