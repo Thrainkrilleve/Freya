@@ -1,0 +1,55 @@
+# The coding agents that work on this repository, and where each finds the
+# shared rules and skills. These are development agents and development skills;
+# Freya's own runtime skills (data/skills/, NEW-BW) are a different thing and
+# never live here.
+#
+# CLAUDE.md is the project guide for every agent and AGENTS.md adds what is
+# specific to the others (see both). Shared skills are maintained in
+# .agents/skills/.
+#
+# To add an agent: add a table below, set enabled = true, and run
+#     python scripts/sync_agents.py
+# Give it a rules_file only if it reads something other than AGENTS.md, and a
+# skills_dir only if it cannot read .agents/skills/. The script creates a
+# missing rules file as a pointer and copies the skills; it never edits an
+# existing rules file. How an agent is started and sandboxed is still decided
+# in CLAUDE.md ("Working with Codex", "Working with Antigravity").
+#
+# Roles (used by the delegate-work skill): author, implement, review,
+# second-opinion, local.
+
+[source]
+rules = "AGENTS.md"
+skills = ".agents/skills"
+
+[agents.claude]
+name = "Claude Code"
+enabled = true
+rules_file = "CLAUDE.md"
+skills_dir = ".claude/skills"
+roles = ["author", "implement", "review"]
+
+[agents.codex]
+name = "Codex"
+enabled = true
+roles = ["implement", "review"]
+notes = "Reads AGENTS.md and .agents/skills directly. Started through scripts/codex.ps1."
+
+[agents.antigravity]
+name = "Antigravity (agy)"
+enabled = true
+roles = ["second-opinion", "implement"]
+notes = "Reads AGENTS.md; give it skill paths in the task. Started through scripts/agy.ps1; cannot run tests."
+
+[agents.gemini]
+name = "Gemini CLI"
+enabled = false
+rules_file = "GEMINI.md"
+roles = ["second-opinion", "implement"]
+notes = "Reads GEMINI.md (created as a pointer) and .agents/skills. Personal Google accounts use Antigravity instead."
+
+[agents.freya]
+name = "Freya (local coding agent)"
+enabled = false
+roles = ["implement", "local"]
+notes = "devtools/local_coding_agent.py; nothing leaves the PC. Turn on once it reads AGENTS.md and .agents/skills."

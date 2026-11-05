@@ -75,6 +75,22 @@ You do not run those hooks, so you must follow these rules yourself:
 - If a task conflicts with `CLAUDE.md`, the spec, or another open PR, stop and say so
   in the PR or task instead of guessing.
 
+## Shared skills and handoffs (every agent)
+
+- The agents that work here and their roles are in `agents.toml`
+  (`python scripts/sync_agents.py --list`). Shared development skills are in
+  `.agents/skills/`; read the matching `SKILL.md` before the task it covers.
+  Antigravity does not find them itself: the task gives it the paths.
+- Never edit the copies in `.claude/skills/`. Edit `.agents/skills/` and run
+  `python scripts/sync_agents.py`; `tests/test_sync_agents.py` fails if they drift.
+- When passing work on, use `feature-handoff`: keep proposed, implemented,
+  verified by an agent and accepted by the owner apart. When a session runs long
+  or switches agent, write a `session-handoff` to `.agents/handoffs/` (local only;
+  never text from `data/`).
+- Choose who does what with `delegate-work`: the strongest model writes and reviews
+  plans, lighter models follow them, tests decide pass or fail, and anything outside
+  a plan goes back to the author.
+
 To hand Claude a task or ask it for a review, run it without a window, from the
 folder it should work in, with the task on stdin:
 

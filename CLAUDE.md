@@ -651,6 +651,9 @@ name matching, the listener, and the listening commands, using a fake Ollama cli
   and a `git commit` while the tests fail (`FREYA_SKIP_COMMIT_TESTS=1` skips that
   check). It is a guard rail, not a security boundary. Other agents follow the same
   rules from `AGENTS.md`; work delegated to Codex is in `docs/tasks/codex-delegation.md`.
+- Shared development skills for every agent are maintained in `.agents/skills/` and
+  copied to `.claude/skills/` by `scripts/sync_agents.py`; edit the source, never the
+  copy. `agents.toml` lists the agents and their roles; see `.agents/README.md`.
 
 ## Working with Codex
 

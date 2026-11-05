@@ -87,3 +87,7 @@ clients/unreal/*/DerivedDataCache/
 clients/unreal/*/Build/
 clients/unreal/*/Fixtures/*.wav
 clients/unreal/*/Fixtures/*.f32
+
+# Session handoffs stay local (.agents/handoffs/README.md)
+.agents/handoffs/*
+!.agents/handoffs/README.md
