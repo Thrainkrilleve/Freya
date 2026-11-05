@@ -22,8 +22,13 @@ at any defined label.
 | NEW-BM to NEW-BV | `design/freya-to-freya-cooperation.md` | 2026-10-09, relabelled 2026-10-21 | Proposal, nothing built |
 | NEW-BW to NEW-CG | `design/skill-learning.md` | 2026-10-22 | Proposal, nothing built; supersedes the mechanism of `learning-loop.md` |
 | NEW-LC11 | `design/attributed-chat-responses.md` | 2026-10-09 | Built; renumber at adoption |
+| NEW-CV to NEW-DA | `design/model-tiers.md` | 2026-11-05 | Proposal, nothing built; extends `skill-learning.md` |
 
-**Next free range starts at NEW-CH.**
+**Next free range starts at NEW-DB.**
+
+NEW-CH to NEW-CU: NEW-CI to NEW-CU are used by `design/local-decider.md` in open PR
+#47, which does not register them yet; NEW-CH is unused. Register them with that
+document when it lands on this line, and do not give them to anything else.
 
 Relabelled on 2026-10-21, when the register was made: `openrig-lessons.md` had taken
 NEW-AM to NEW-AX a week after `code-sandbox.md` took NEW-AM to NEW-AR; and
