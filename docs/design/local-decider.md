@@ -1,0 +1,280 @@
+# Freya's own local decider
+
+Claude proposal, 2026-11-05. **Status: a design proposal only. Nothing here is adopted,
+no ADR is approved, nothing has been built or measured, and no acceptance test has
+been run.** Requirements carry the provisional labels **NEW-CI to NEW-CT** and
+acceptance tests **DEC-1 to DEC-9**, per the ID rules in `CLAUDE.md`; reconciliation
+assigns real IDs.
+
+Background: decision 4 of the owner's decision brief (2026-11-04) put Freya's task loop
+in deterministic code and left a slot for a non-LLM decider. On 2026-11-05 the owner
+identified the model he had in mind as Jev (TypeSafe AI), ruled that the decider must
+stay local, and asked for Freya's own version of it. This document is that design.
+
+## 1. What a decider is
+
+A decider reads some text and a typed question, and returns a typed answer with a
+probability. It never writes prose. Three kinds of question cover everything Jev and
+Laya offer:
+
+- **choice**: one of a fixed list of options (which kind of task is this?);
+- **score**: one level on an ordered scale (how urgent, 0 to 4?);
+- **yes/no**: the probability that a statement is true (is this a question about the past?).
+
+What makes it useful is that the answer cannot be malformed, it comes back in tens of
+milliseconds instead of seconds, and the probability can be checked against how often
+it is right. What it cannot do is explain itself, plan, or write a reply. It is a
+function called by Freya's code, not a part of the conversation.
+
+## 2. Where Freya decides things today
+
+Read from `release/2026-10-21`. Every one of these is a decision with a fixed set of
+answers, made today either by a rule or by asking the 27B model for JSON.
+
+| Decision | How today | Where | Cost per call | Candidate? |
+| --- | --- | --- | --- | --- |
+| Is this a question about the past? | Regex `ASKS_ABOUT_THE_PAST` | `core/conversation_memory.py` | ~0 | Yes, pilot: misses paraphrases; regex gives labels |
+| Is this an image request? | Regex `FreyaToolRouter` | `tools/tool_router.py` | ~0 | Yes, alongside the regex |
+| Does this message hold something worth remembering, and what type? | 27B model, background role, JSON | `core/llm.py` `evaluate_memory` | seconds, GPU | Yes: runs on every turn |
+| How do two memories relate (duplicate, complementary, conflict, uncertain)? | 27B model, JSON | `core/llm.py` `compare_memories` | seconds | Yes: already a four-way choice |
+| Which candidate memories are relevant? | Embedding similarity, then 27B rerank | `core/llm.py` `rerank_memory_candidates` | seconds | Yes, as a yes/no per candidate |
+| Which kind of task is a delegation (8 kinds)? | Main model fills a tool argument | `delegation/turn.py`, `compose.py` | inside the reply | Yes: 91 labelled briefs exist |
+| What value and urgency did the owner ask for? | Regex `said_value` | `delegation/turn.py` | ~0 | Maybe; the rule is precise and should stay first |
+| Which tools to offer this turn | All marked tools, every turn | `tools/model_tools.py` | prompt tokens | Later: a shortlist, the model still chooses |
+| Which route does delegated work go to? | Measured record, `choose()` | `delegation/record.py` | ~0 | **No**: already deterministic and evidence-based |
+| Is a brief too private to send? | Phrases, names, embedding meaning ≥ 0.82 | `delegation/screening.py` | ms | Only to add holds, never to release one |
+| Is a sentence addressed to Freya? | Name matching | `voice/wake.py` | ~0 | No: fast, explainable, owner-tunable |
+| Is an action allowed? | Policy engine, deny by default | `core/policy/` | ~0 | **Never** |
+
+The pattern is clear: the expensive decisions are the memory ones, which ask a 27B
+model a multiple-choice question on every turn, and the brittle ones are the regexes,
+which miss paraphrases. Those are where a decider pays off.
+
+## 3. Jev, Laya and Freya, part by part
+
+Sources: TypeSafe's launch as reported by DataCamp (16 Sept 2026) and DigitalOcean
+(24 Sept 2026); Laya's GitHub repository and Hugging Face cards. Figures from both
+vendors are their own and were not reproduced here.
+
+| Part | Jev (TypeSafe) | Laya (Convai Innovations) | Freya now | Better, and why | Port to Freya? |
+| --- | --- | --- | --- | --- | --- |
+| Where it runs | Hosted API only | Local, `pip install laya`, Apache 2.0 code and weights | Local rules and local 27B model | Laya and Freya: the owner's rule is local only | Laya's local packaging, in its own environment |
+| Architecture | Undisclosed; "parallel sampler" gives every answer in one pass | Encoder (ModernBERT-large, 421M; mmBERT-base, 322M), each option scored at its own mask token, softmax over options | Autoregressive LLM writing JSON, or regex | Laya for Freya: known, small, inspectable | Yes, the option-at-a-mask design |
+| Question types | choice, score, yes/no | choice, score, yes/no, same shape | Ad-hoc JSON per prompt; booleans from regex | Jev/Laya: one typed contract for every decision | Yes, as Freya's own contract (NEW-CI) |
+| Output validity | Always typed (vendor) | Always typed (no generation) | JSON parsing can fail; `_parse_memory_result` handles it | Jev/Laya | Yes |
+| Confidence | Calibrated probability on every answer; vendor ECE 0.144 on typed-decisions | Probabilities; ships over-confident (ECE 0.466, 0.081 after per-type temperature) | None; the regex is certain, the LLM's JSON has no probability | Jev on paper; Laya shows calibration must be fitted, not assumed | Yes, with Freya fitting its own temperatures on held-out data (NEW-CM) |
+| Abstaining | Not described | An act/escalate head, which its authors report has no usable signal | The LLM's `uncertain` option in `compare_memories` | Freya's explicit option is honest; Laya's head is not usable | Abstain by threshold in code, not a learned head (NEW-CN) |
+| Training | RLCD, undisclosed detail, synthetic data | RLCD described: REINFORCE with group-mean baseline, proper scoring rules, plus distillation from a teacher's distributions | None (prompts) | Laya: reproducible | Yes: distil from Freya's 27B model, then fit on owner-checked labels |
+| Fine-tuning | Not offered | Notebooks; ~4–5 h on 2×T4 for 6,000 decisions | Not applicable | Laya | Yes; the 4090 is several times a T4 |
+| Speed | 70–500 ms, network included | ~33–40 ms per question on a T4 (authors) | Regex ~0; 27B JSON several seconds | Laya locally | Expect tens of ms on the 4090, a few hundred on the processor (to measure) |
+| Accuracy | 67.8% on TypeSafe's own workflows; matched a human on 500 calls in a LangChain test (secondary) | 0.766 on typed-decisions, the split it was fine-tuned on; base checkpoint near chance zero-shot; 0.425 on Banking77 (77 options) | Measured only for delegation work, not for these decisions | Unknown for Freya's questions | Measure on Freya's own sets before trusting either (NEW-CQ) |
+| Many options | Not stated | Keep under ~20 options | Tool list is ~15 | Neither for large lists | Keep Freya's questions small; split large ones |
+| Determinism | Not stated | Batch shape can shift results slightly | Regex deterministic; LLM sampled | Freya's rules | Run one question per pass, fixed precision, so the same input gives the same answer (NEW-CO) |
+| Explanation | None | None | LLM gives a reason; regex is readable | Freya | Keep the input, question, probabilities and model digest in the audit record instead of a reason (NEW-CP) |
+| Languages | Not stated | English model collapses on non-Latin text at high confidence; a multilingual model exists | English | Laya's warning matters | English model; a language check routes anything else to the old path |
+| Privacy | Every decision leaves the PC | Nothing leaves the PC | Nothing leaves the PC | Laya, Freya | Required (NEW-CJ) |
+| Security of the serving | Vendor's | HTTP server with no authentication unless a key is set | Broker, policy, audit | Freya | Do not run Laya's server; run a helper over pipes (NEW-CK) |
+
+**Verdict.** Jev's interface is the thing worth copying: three question types, a typed
+answer, a probability on everything. Laya shows that interface can be built locally
+from an open encoder, and its weak points (over-confidence, near-chance zero-shot on
+new questions, an unusable abstain head, sensitivity to option count and language) say
+exactly what Freya's version must do differently: train on Freya's own questions, fit
+calibration on held-out labels, abstain in code, and keep the old path as the fallback.
+Nothing in Jev is portable as software, because none of it is published.
+
+`tev1:4b`, the "decision" model already installed (`docs/design/local-models.md`), is
+not this kind of model: it answered the delegated-work benchmark as a generative model
+(178 of 189, 35 minutes) and returns text, not typed probabilities.
+
+## 4. The design
+
+### 4.1 Contract (NEW-CI)
+
+One request and one answer, versioned. Field names provisional.
+
+```text
+DecisionRequest
+  point        the decision point, e.g. "memory.worth_saving" (a registered name)
+  state        the text to decide about, with a trust label per part
+  question     type: choice | score | yesno
+               options (choice), levels with descriptions (score), or statement (yesno)
+  version      the question's version; a changed question is a new version
+
+Decision
+  answer       option id, level, or yes/no
+  probability  calibrated probability of that answer
+  distribution every option's probability
+  abstained    true when the point's threshold was not reached
+  model        decider id and weights digest
+  elapsed_ms
+```
+
+Questions are registered in code with each decision point, never composed from model
+output or user text. A decision point declares its fallback (the rule or LLM call it
+replaces) and its threshold.
+
+### 4.2 Where it sits (NEW-CJ, NEW-CK)
+
+- A provider, `decider-local`, offering one capability, `decide`, called through the
+  `CapabilityBroker` like every other call: policy-checked, audited, health-linked.
+  It is not offered to the model as a tool (`model_tool: False`).
+- The model runs in a helper process in its own environment under
+  `data/decider_env/`, speaking JSON lines over its pipes, exactly like the speech
+  engines (`speech/helper.py`). Laya's stack pins torch and transformers versions that
+  must not be installed into `.venv`. The worker imports nothing from `freya`.
+  Nothing listens on a port.
+- Weights live in `data/decider_models/`, with the hub offline at run time.
+- It runs on the graphics card when there is room (an encoder of ~400M parameters
+  needs roughly 1 GB in half precision; ~3.5 GB is free beside `qwen3.8:27b` at a
+  16,384-token context) and on the processor otherwise. It never unloads the
+  conversation model to make room.
+
+### 4.3 What a decision may do (NEW-CL)
+
+This is the rule that keeps the decider safe:
+
+- **A decision chooses between paths Freya's code already allows.** It may pick which
+  search to run, which memory type to file, which kind a brief is. It never grants a
+  permission, approves an action, releases a screening hold, loosens a setting, or
+  counts as the owner's consent.
+- **In privacy and safety checks it may only add caution.** For example, it may hold a
+  brief that the phrase and name checks let through; it can never let through one they
+  held. The same one-way rule as voice may only tighten cloud settings.
+- The decider reads untrusted text (messages, tool results, documents) and can be
+  swayed by it like any model. That is acceptable only because of the two rules above.
+
+### 4.4 Confidence and fallback (NEW-CM, NEW-CN)
+
+- Calibration is fitted by Freya on held-out, owner-checked labels, one temperature
+  per question type and option count, and refitted whenever the weights change.
+- Each decision point has a threshold. Below it the decider abstains and the existing
+  path runs (the regex, or the 27B call). Abstaining is a normal, logged outcome.
+- Thresholds start strict and are lowered only from measurements (§5).
+- A language check sends text the English model was not trained on straight to the
+  fallback.
+
+### 4.5 Determinism and audit (NEW-CO, NEW-CP)
+
+- One question per forward pass, fixed precision, no sampling, so the same request and
+  weights give the same answer. A test checks this.
+- The audit record holds the decision point, question version, a hash of the state,
+  the distribution, whether it abstained, and the weights digest. The state itself is
+  not copied into the audit log, since it may be personal.
+
+### 4.6 The model
+
+Built in three stages; each one is useful by itself and gated by measurements.
+
+1. **Off the shelf.** Run Laya's English checkpoint unchanged on Freya's decision sets
+   (§5), in shadow. This costs a download (~0.8 GB) and tells us how far zero-shot gets.
+   Laya's own figures suggest not far on new questions.
+2. **Freya's decider.** Fine-tune from Laya's checkpoint (or from the ModernBERT-large
+   base it is built on, also Apache 2.0) with heads for the three question types,
+   trained by distillation from `qwen3.8:27b`'s answers and proper scoring rules
+   against owner-checked labels. Training runs on the 4090 in the decider's own
+   environment, in hours, not days.
+3. **Learning from use (later, owner's choice).** Shadow decisions and their outcomes
+   become new training data, reviewed before use. Retraining is a reviewed step that
+   produces a new weights digest, never something Freya does to herself unattended
+   (NEW-D).
+
+### 4.7 Training data and the owner's privacy (NEW-CR)
+
+- Default: synthetic examples only, written for each decision point, plus labels from
+  the existing rules and the 27B model on those synthetic texts. The 91 delegated
+  tasks in `evaluation/delegation_tasks.py` already carry a kind each, a ready
+  labelled set for the task-kind point; the workflow scenarios label which questions
+  need a tool.
+- Training on the owner's real conversations or memories is off unless the owner turns
+  it on. Weights trained on them would hold traces of that data, so they live under
+  `data/`, are never committed, and are never sent to another node (as with converted
+  avatar models).
+- Every set keeps a held-out part never used in training or calibration.
+
+## 5. Measuring it (NEW-CQ)
+
+A new opt-in runner, `freya.evaluation.decisions`, beside the delegation and workflow
+runners. For each decision point and each contender (the current rule, the 27B model,
+Laya as supplied, Freya's decider):
+
+- accuracy, and accuracy on the answers it did not abstain on;
+- calibration error (ECE) and Brier score;
+- abstain rate;
+- p50 and p95 time, and graphics memory used;
+- for one-way checks, the number of times it would have loosened something (must be 0).
+
+A decider replaces a path only when, on held-out data, it matches the current path's
+accuracy where it answers, abstains on no more than an agreed share, and is faster or
+cheaper. Until then it runs in shadow: it decides, the result is recorded, and the old
+path's answer is used.
+
+## 6. Requirements (provisional)
+
+- **NEW-CI — One typed decision contract.** choice, score and yes/no, each with a
+  calibrated probability and a full distribution; questions registered in code.
+- **NEW-CJ — Local only.** The decider and its training run on the owner's machine;
+  no decision, state or label leaves it. A hosted decider is not a fallback.
+- **NEW-CK — Behind the broker, out of process.** One capability, `decide`, under
+  policy and audit; the model in its own environment and helper process; no network
+  listener; not offered to the model as a tool.
+- **NEW-CL — Decisions choose, never authorize.** A decision selects among paths code
+  already allows; in privacy and safety checks it may only add caution.
+- **NEW-CM — Calibration is measured.** Temperatures are fitted on held-out
+  owner-checked labels and refitted with every new weights digest.
+- **NEW-CN — Abstain to the existing path.** Below a point's threshold, or on text in a
+  language the model was not trained on, the old path decides.
+- **NEW-CO — Deterministic.** The same request and weights give the same answer.
+- **NEW-CP — Auditable without the text.** The audit record holds what is needed to
+  check a decision except the personal text itself.
+- **NEW-CQ — Measured before trusted.** No decision point switches from shadow to live
+  without a recorded evaluation against its current path.
+- **NEW-CR — The owner's data trains only with consent.** Synthetic by default; weights
+  trained on personal data stay under `data/` and never leave the machine.
+- **NEW-CS — Retraining is reviewed.** New weights go through review like code; Freya
+  does not retrain herself unattended.
+- **NEW-CT — Replaceable.** The contract does not depend on Laya; another local model
+  (or a later node with a larger card) can serve it without changing callers.
+
+## 7. Acceptance tests (provisional)
+
+| ID | Property | Pass criterion |
+| --- | --- | --- |
+| DEC-1 | Typed output | 10,000 random requests: every answer valid for its question |
+| DEC-2 | Determinism | Same request twice, same weights: identical distribution |
+| DEC-3 | Calibration | Held-out ECE ≤ 0.05 per question type after fitting |
+| DEC-4 | Abstain | Below threshold, the fallback's answer is used and the abstention audited |
+| DEC-5 | One-way checks | Injected "release this" text never loosens a screening hold |
+| DEC-6 | No authority | No path exists from a decision to a policy change, approval, or consent |
+| DEC-7 | Local only | With the network cut, decisions and training still work; nothing is sent |
+| DEC-8 | Isolation | Killing the helper mid-request: the fallback answers, Freya's turn completes |
+| DEC-9 | Speed | p95 under 100 ms per question on the graphics card, model loaded |
+
+## 8. Order of work
+
+1. **Contract and runner.** The `decide` capability with a rules-only provider (the
+   existing regexes behind the new contract), the shadow log, and
+   `freya.evaluation.decisions` with labelled synthetic sets for three pilot points:
+   past questions, memory worth saving, and memory relationship. Testable in CI; no
+   model needed.
+2. **Laya in shadow.** Its environment and helper, installed by the owner like a speech
+   engine; a measurement run on the 4090.
+3. **Freya's decider.** Fine-tuning and calibration scripts; a second measurement;
+   switch a pilot point live only if it meets §5.
+4. **More points.** Task kind for delegation, image requests, memory rerank, then a
+   tool shortlist.
+
+## 9. For the owner to decide
+
+- Adopt the contract and the "choose, never authorize" rule (NEW-CI, NEW-CL).
+- Start from Laya's Apache 2.0 weights, or from the bare ModernBERT base.
+- Whether the decider may ever train on real conversations and memories (NEW-CR).
+- Which pilot point goes first; the recommendation is past questions (low risk, an
+  existing regex to compare with, and paraphrases it misses today).
+
+## Sources
+
+- DataCamp, "System One models: Jev", 16 Sept 2026: https://www.datacamp.com/blog/system-one-models-jev
+- DigitalOcean, "What is Jev?", 24 Sept 2026: https://www.digitalocean.com/resources/articles/what-is-jev
+- Laya code: https://github.com/NandhaKishorM/laya
+- Laya models: https://huggingface.co/convaiinnovations/laya and https://huggingface.co/convaiinnovations/laya-typed-decisions
