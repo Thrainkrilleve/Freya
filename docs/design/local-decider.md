@@ -2,8 +2,8 @@
 
 Claude proposal, 2026-11-05. **Status: a design proposal only. Nothing here is adopted,
 no ADR is approved, nothing has been built or measured, and no acceptance test has
-been run.** Requirements carry the provisional labels **NEW-CI to NEW-CT** and
-acceptance tests **DEC-1 to DEC-9**, per the ID rules in `CLAUDE.md`; reconciliation
+been run.** Requirements carry the provisional labels **NEW-CI to NEW-CU** and
+acceptance tests **DEC-1 to DEC-10**, per the ID rules in `CLAUDE.md`; reconciliation
 assigns real IDs.
 
 Background: decision 4 of the owner's decision brief (2026-11-04) put Freya's task loop
@@ -144,6 +144,31 @@ This is the rule that keeps the decider safe:
 - The decider reads untrusted text (messages, tool results, documents) and can be
   swayed by it like any model. That is acceptable only because of the two rules above.
 
+### 4.3a Earning the right to approve (NEW-CU)
+
+The owner's direction (2026-11-05): the decider may one day approve things itself, but
+only after trust in its decisions is established. The rule above is where it starts,
+not where it must stay. Approval authority is earned one decision point at a time:
+
+- **Shadow first.** At a point that asks the owner today (for example, an ask-first
+  approval), the decider records what it would have answered, and the owner's real
+  answer is kept beside it. It decides nothing.
+- **A record to judge it by.** For each point: how many owner answers it was compared
+  with, how often it agreed, and above all how often it would have said yes where the
+  owner said no. The figures are shown to the owner; the decider never sees them.
+- **The owner grants, per point.** Only the owner can let the decider approve at a
+  point, and only when its record there meets a bar the owner sets (a suggested
+  start: at least 200 compared answers and no wrong yes in the last 200). The grant
+  names the point, the weights digest, and a probability above which it may approve;
+  below that the owner is still asked.
+- **Bounded and reversible.** A grant never covers a kind of material set to never, a
+  provider that is switched off, the owner's policy rules, a spoken turn's
+  confirmation, or anything destructive. It ends when the weights change, when the
+  owner withdraws it, or at the first decision the owner later overturns, and every
+  approval it makes is audited as the decider's, not the owner's.
+
+Until a grant exists, NEW-CL holds in full.
+
 ### 4.4 Confidence and fallback (NEW-CM, NEW-CN)
 
 - Calibration is fitted by Freya on held-out, owner-checked labels, one temperature
@@ -233,6 +258,11 @@ path's answer is used.
   trained on personal data stay under `data/` and never leave the machine.
 - **NEW-CS — Retraining is reviewed.** New weights go through review like code; Freya
   does not retrain herself unattended.
+- **NEW-CU — Authority is earned, per point, from the owner.** The decider may approve
+  only at a decision point where the owner has granted it, after a recorded shadow
+  comparison with the owner's own answers meets the owner's bar; a grant is bound to
+  one weights digest and ends on retraining, withdrawal or the first overturned
+  approval.
 - **NEW-CT — Replaceable.** The contract does not depend on Laya; another local model
   (or a later node with a larger card) can serve it without changing callers.
 
@@ -249,6 +279,7 @@ path's answer is used.
 | DEC-7 | Local only | With the network cut, decisions and training still work; nothing is sent |
 | DEC-8 | Isolation | Killing the helper mid-request: the fallback answers, Freya's turn completes |
 | DEC-9 | Speed | p95 under 100 ms per question on the graphics card, model loaded |
+| DEC-10 | Earned authority | With no grant, a confident "yes" at an approval point still asks the owner; after a retrain, an earlier grant no longer applies |
 
 ## 8. Order of work
 
@@ -266,7 +297,9 @@ path's answer is used.
 
 ## 9. For the owner to decide
 
-- Adopt the contract and the "choose, never authorize" rule (NEW-CI, NEW-CL).
+- ~~Adopt the contract and the "choose, never authorize" rule (NEW-CI, NEW-CL).~~
+  Owner, 2026-11-05: yes for now, with a path to earned approval authority (§4.3a,
+  NEW-CU). Still provisional until reconciliation.
 - Start from Laya's Apache 2.0 weights, or from the bare ModernBERT base.
 - Whether the decider may ever train on real conversations and memories (NEW-CR).
 - Which pilot point goes first; the recommendation is past questions (low risk, an
