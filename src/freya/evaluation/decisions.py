@@ -2,10 +2,11 @@
 Opt-in measurement of a decider at each decision point
 (docs/design/local-decider.md, section 5).
 
-Today the only decider is the rules Freya already uses, so this runs
-anywhere and contacts nothing. When a model decider exists it is added
-to DECIDERS and measured on the same examples, so the two can be
-compared directly. Reports are refused rather than overwritten.
+The rules Freya already uses run anywhere and contact nothing. Model
+deciders (Laya, and the open decision models served by a local Ollaya
+in decider/systemone_decider.py) are measured on the same examples, so
+they can be compared directly; `freya.evaluation.decider_bench` runs
+them all. Reports are refused rather than overwritten.
 """
 import argparse
 import json
@@ -21,10 +22,15 @@ from freya.decider.contract import DecisionError, checked_decision
 from freya.decider.points import POINTS
 from freya.decider.laya_decider import LayaDecider
 from freya.decider.rules import RulesDecider
+from freya.decider.systemone_decider import CANDIDATES, candidate_decider
 from freya.evaluation.decision_sets import SETS, Example
 
 
-DECIDERS = {"rules": RulesDecider, "laya": LayaDecider}
+DECIDERS = {
+    "rules": RulesDecider,
+    "laya": LayaDecider,
+    **{key: candidate_decider(key) for key in CANDIDATES},
+}
 CALIBRATION_BINS = 10
 SPLITS = ("all", "train", "held-out")
 
@@ -137,6 +143,19 @@ def measure(decider, points: Sequence[str], split: str) -> Dict[str, dict]:
     return results
 
 
+def not_ready_message(name: str) -> str:
+    if name in CANDIDATES:
+        return (
+            f"The {name} decider is not available: Ollaya is not running or "
+            f"has no {CANDIDATES[name].tag} model. "
+            "See: python -m freya.decider.install candidates"
+        )
+    return (
+        f"The {name} decider is not installed. "
+        f"Set it up with: python -m freya.decider.install {name}"
+    )
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Measure a decider on synthetic decision sets.")
     parser.add_argument("--list", action="store_true", help="List the decision points and their sets.")
@@ -159,11 +178,7 @@ def main(argv=None):
     decider = DECIDERS[args.decider]()
 
     if not decider.ready():
-        print(
-            f"The {args.decider} decider is not installed. "
-            f"Set it up with: python -m freya.decider.install {args.decider}",
-            file=sys.stderr,
-        )
+        print(not_ready_message(args.decider), file=sys.stderr)
         return 2
 
     results = measure(decider, points, args.split)

@@ -297,6 +297,31 @@ path's answer is used.
    pinned to the commit Laya's authors list as reviewed; the cloud machine that wrote
    it cannot reach Hugging Face, so the first real numbers come from the owner's PC). Its environment and helper, installed by the owner like a speech
    engine; a measurement run on the 4090.
+2a. **Open decision models in shadow** (built, 2026-11-06, not yet run:
+   `decider/systemone_decider.py`, `evaluation/decider_bench.py`,
+   `python -m freya.decider.install candidates`). The owner asked for the five
+   best-suited open models to be benchmarked against the rules and Laya. Chosen from
+   Ollaya Bench's public results (edition 2026.10, RTX 5090) for accuracy,
+   calibration, licence and fit beside `qwen3.8:27b` on 24 GB:
+
+   | Model | Author | Licence | Size | Ollaya Bench score | Memory there |
+   | --- | --- | --- | --- | --- | --- |
+   | pplx-decider-flash v1.2 | Perplexity | Apache 2.0 | 4B | 73.7 | 10.4 GB |
+   | Decision 3.0 (4B) | vLLM Semantic Router | Apache 2.0 | 4B | 68.0 | 10.8 GB |
+   | Jebadiah 4B | AINode | Apache 2.0 | 4B | 63.9 | 5.4 GB |
+   | d1-3B | Liquid AI | LFM Open 1.0 | 3B | 63.1 | 4.0 GB |
+   | Bespoke-Nimble-9B v2 | Bespoke Labs | Apache 2.0 | 9B | 61.9 | 20.1 GB |
+
+   They are served for measurement by Ollaya (Apache 2.0), a local runtime that runs
+   each author's own weights, pinned by sha256, behind TypeSafe's System One API, so
+   one client measures all five. Ollaya is a loopback HTTP server, which NEW-CK does
+   not allow for the decider Freya uses: the winner is to be served by a helper
+   process like Laya's, or NEW-CK amended, before any point goes live. The client
+   only talks to a loopback address, uses no proxy, follows no redirect, and never
+   repeats Ollaya's error wording (it could quote the text). The runner loads each
+   model before timing it and unloads it after, and records its graphics memory.
+   Owner steps: install Ollaya, pull the models (roughly 40 to 50 GB), then
+   `python -m freya.evaluation.decider_bench --output work\deciders-first.json`.
 3. **Freya's decider.** Fine-tuning and calibration scripts; a second measurement;
    switch a pilot point live only if it meets §5.
 4. **More points.** Task kind for delegation, image requests, memory rerank, then a
@@ -326,3 +351,8 @@ path's answer is used.
 - DigitalOcean, "What is Jev?", 24 Sept 2026: https://www.digitalocean.com/resources/articles/what-is-jev
 - Laya code: https://github.com/NandhaKishorM/laya
 - Laya models: https://huggingface.co/convaiinnovations/laya and https://huggingface.co/convaiinnovations/laya-typed-decisions
+- Ollaya, its API contract and model list: https://github.com/ollaya-dev/ollaya
+- Ollaya Bench, edition 2026.10: https://bench.ollaya.dev/
+- Bespoke Nimble: https://github.com/bespokelabsai/nimble
+- pplx-decider: https://huggingface.co/perplexity-ai/pplx-decider-v1.2
+- d1-3B: https://huggingface.co/LiquidAI/d1-3B
