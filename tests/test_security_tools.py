@@ -71,7 +71,7 @@ def test_audit_chain_healthy_is_not_a_failure(audit):
 
 def test_audit_chain_reports_tampering_as_fail():
     fake = types.SimpleNamespace(
-        verify=lambda: AuditVerification(ok=False, problems=["event 3 altered"])
+        verify=lambda: AuditVerification(ok=False, events_checked=3, problems=["event 3 altered"])
     )
     finding = sec.check_audit_chain(context(audit=fake))
     assert finding["status"] == FAIL
@@ -80,7 +80,7 @@ def test_audit_chain_reports_tampering_as_fail():
 
 def test_audit_chain_warnings_are_a_warning():
     fake = types.SimpleNamespace(
-        verify=lambda: AuditVerification(ok=True, warnings=["no off-host sink"])
+        verify=lambda: AuditVerification(ok=True, events_checked=3, warnings=["no off-host sink"])
     )
     finding = sec.check_audit_chain(context(audit=fake))
     assert finding["status"] == WARN
