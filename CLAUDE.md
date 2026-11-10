@@ -61,6 +61,10 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
+  `src/freya/gpu/model_fit.py` (`python -m freya.gpu fit|measure`) — estimates whether a
+  model fits the card, the card plus system memory, or neither, and measures where Ollama
+  actually put it; see `docs/design/larger-models.md`. It changes no setting; `measure`
+  loads the model with no layer count forced and sends only a made-up question.
 - `src/freya/host_checks.py` — read-only checks of this PC whose result is told to the
   owner at startup. Today: Windows Smart App Control, which when on blocks unsigned
   libraries (ComfyUI's, PyTorch's, the voice engines') with no exception possible.
