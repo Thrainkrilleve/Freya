@@ -568,8 +568,11 @@ are applied once per named seed (`policy_seed` table), so removed rules stay rem
 
 Code sandbox: `freya.sandbox` is the contract for running code a model wrote
 (`contract.py`) and the capability `code.run` on provider `code-sandbox-local`
-(`service.py`). There is no real sandbox yet, only a stand-in in the tests, and
-`build_local_control_plane` does not register it; a test checks that. The design,
+(`service.py`). The WSL2 container profile is built (`wsl.py`, the in-container
+`image/runner.py`, which must not import `freya`, `wsl_setup.py`, `probes.py`, and
+`python -m freya.sandbox status|setup|probe`) but has not been run on the PC;
+`build_local_control_plane` does not register it, and a test checks that. The owner
+sets it up and runs the probes before any registration or policy rule. The design,
 `docs/design/code-sandbox.md`, is a proposal that is not adopted: a Linux container
 in WSL2, because this PC runs Windows 11 Home, which has no Hyper-V. Keep these
 rules: a sandbox must state no network, none of this machine's files, no

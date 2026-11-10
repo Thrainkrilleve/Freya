@@ -113,12 +113,47 @@ The commands are `python` (one of the files) and `pytest` (all of them, or one f
 or folder of them). The limits are 200 files, 1 MB each, 8 MB together, 100,000
 characters of output, and 60 seconds by default, 600 at most.
 
-## 6. What is not built: the real runner
+## 6. The real runner (built 2026-11-10, not yet run on this machine)
 
-This needs WSL, which the owner installs (an administrator action and a restart):
-`wsl --install --no-distribution`.
+Owner direction, 2026-11-10: build the WSL2 container profile as Freya's main
+sandbox now; spare laptops may be added later as a stronger, separate-machine
+profile behind the same contract. This does not register the sandbox or add a
+policy rule: NEW-AR still applies, and the probes below must pass first.
 
-The intended shape, to be settled when it is built:
+Built in `src/freya/sandbox/`: `wsl.py` (`WslContainerSandbox`), `image/`
+(the `Containerfile` and `runner.py`, which runs inside the container and imports
+nothing from Freya), `wsl_setup.py`, `probes.py`, and `python -m freya.sandbox
+status | setup | probe`. Tested in `tests/test_wsl_sandbox.py` with a fake WSL;
+the runner itself is tested directly on Linux.
+
+Owner steps, in order:
+
+1. As administrator, then restart: `wsl --install --no-distribution`.
+2. `wsl --install Debian --name freya-sandbox --no-launch`.
+3. `python -m freya.sandbox setup` (installs Podman in that distribution, writes its
+   `/etc/wsl.conf`, builds the image; needs the network, a few hundred MB).
+4. `python -m freya.sandbox probe`, and keep the printed results.
+
+What was built, against the intended shape below:
+
+- The distribution's `/etc/wsl.conf` turns off Windows drive mounting, starting
+  Windows programs and the Windows PATH, and turns on systemd so rootless Podman can
+  apply limits. WSL's own networking is left on (it is one setting for every
+  distribution); each container has `--network=none`, and probes 1 and 2 check it.
+- Each run is `podman run --rm --network=none --read-only` with tmpfs `/work` and
+  `/tmp`, user 65534, `--cap-drop=ALL`, `no-new-privileges`, memory and process
+  limits, and a Podman timeout. The runner sets its own limits on the code as well
+  (address space, processes, file size, processor time) and kills the code's whole
+  process group when it ends or runs out of time.
+- `wsl.exe` is started directly with fixed arguments and an environment holding only
+  the Windows variables it needs, with `WSLENV` empty. The request travels as JSON on
+  standard input. Freya reads at most a bounded amount back, takes only the last
+  answer line, and treats a missing answer as "not run".
+- The runner's answer is untrusted: the code can write to the same output and so can
+  lie about its own result, as it already could with its exit code.
+- `pytest` is pinned by version in the image but not by hash (NEW-J is not met).
+
+The intended shape, as written before it was built:
 
 - A WSL distribution used for nothing else, with automatic sharing of Windows drives
   and the running of Windows programs both switched off, and WSL's networking off.
@@ -151,7 +186,8 @@ from inside the sandbox:
   credentials.
 - The delegation evaluation still reads replies and never runs them. Grading by
   running code inside the sandbox would be a separate decision.
-- Hyper-V remains the preferred profile. Nothing is enabled by merging this.
+- Hyper-V remains the preferred profile where available. Nothing is enabled by
+  merging this.
 
 ## 8. Alternatives considered
 
