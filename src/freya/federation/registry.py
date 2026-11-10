@@ -30,6 +30,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from freya.federation.network import classify_address, worker_address_allowed
 from freya.federation.roles import (
     ROLES,
     ROLES_ALLOWED_NOW,
@@ -211,7 +212,7 @@ class NodeRegistry:
 
     # Offers
 
-    def record_offer(self, offer, fingerprint=None):
+    def record_offer(self, offer, fingerprint=None, address=None):
         """
         Record a machine's offer. It is a suggestion only: nothing about
         the machine changes, and nothing can be sent to it.
@@ -219,6 +220,8 @@ class NodeRegistry:
         `offer` is what `profile.py --save` writes. `fingerprint` is the
         SHA-256 of the machine's public key, when the offer came over a
         channel that proves one; a file carried by hand has none.
+        `address` is where the machine will be reached: on the home
+        network or the tailnet, never a public address.
         """
         if len(json.dumps(offer, default=str)) > MAX_OFFER_BYTES:
             raise RegistryError("The offer is too large to read.")
@@ -233,6 +236,11 @@ class NodeRegistry:
             str(fingerprint)
         ):
             raise RegistryError("The machine's key could not be read.")
+
+        if address is not None and not worker_address_allowed(address):
+            raise RegistryError(
+                "A machine must be on the home network or the tailnet."
+            )
 
         profile = clean_profile(offer.get("profile"))
 
@@ -260,6 +268,8 @@ class NodeRegistry:
                 "join_code": code,
                 "code_attempts": 0,
                 "fingerprint": fingerprint,
+                "address": str(address).strip().lower() if address else None,
+                "network": classify_address(address) if address else None,
                 "offered_at": int(now),
                 "roles": [],
                 "enrolled_at": None,

@@ -89,7 +89,11 @@ Rules for the spec:
   `docs/design/worker-nodes.md`, NEW-DB to NEW-DM, not adopted). Built so far: `profile.py`
   (standard library only, imports nothing from Freya, opens no connection: copied to a
   spare machine it reports what that machine could lend and writes an offer with a join
-  code), `roles.py` (suggested roles; only inference roles may be enrolled), and
+  code), `roles.py` (suggested roles; model workers and, under the owner's 2026-11-10
+  exception to decision 10 and its `SANDBOX_HOST_CONDITIONS`, sandbox hosts may be
+  enrolled), `network.py` (a worker's address must be home network or tailnet, never
+  public; lists the owner's Tailscale machines by reading `tailscale status`, which
+  enrolls nothing), and
   `registry.py` (offers, the owner's typed approval with the code, expiry, revocation,
   `may_assign`, in `data/federation_nodes.json`); `python -m freya.federation` drives it.
   Keep these rules: an offer or discovery never enrolls; voice cannot enroll or renew;

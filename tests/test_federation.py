@@ -4,6 +4,7 @@ from pathlib import Path
 
 import pytest
 
+from freya.federation import network
 from freya.federation import profile as node_profile
 from freya.federation import roles as node_roles
 from freya.federation.__main__ import main as federation_main
@@ -160,7 +161,7 @@ def test_a_gaming_laptop_is_suggested_as_a_model_worker():
     assert by_role["model-worker"].allowed_now
     assert "10B" in by_role["model-worker"].reason
     assert not by_role["split-inference"].allowed_now
-    assert not by_role["sandbox-host"].allowed_now
+    assert by_role["sandbox-host"].allowed_now
 
 
 def test_a_laptop_without_a_card_gets_cpu_models_and_hosting_ideas():
@@ -183,8 +184,10 @@ def test_an_arm_machine_is_not_offered_as_a_sandbox():
     assert "sandbox-host" not in roles
 
 
-def test_only_inference_roles_may_be_enrolled_in_this_version():
-    assert node_roles.ROLES_ALLOWED_NOW == {"model-worker", "cpu-model-worker"}
+def test_inference_and_sandbox_roles_may_be_enrolled_in_this_version():
+    assert node_roles.ROLES_ALLOWED_NOW == {
+        "model-worker", "cpu-model-worker", "sandbox-host",
+    }
     for name, role in node_roles.ROLES.items():
         assert bool(role.why_not_yet) == (name not in node_roles.ROLES_ALLOWED_NOW)
 
@@ -270,8 +273,8 @@ def test_voice_and_other_principals_cannot_enroll(registry):
 
 def test_roles_needing_a_decision_cannot_be_enrolled(registry):
     node_id = registry.record_offer(make_offer())
-    with pytest.raises(RegistryError, match="decision 10"):
-        registry.approve(node_id, "12345678", OWNER, ["sandbox-host"])
+    with pytest.raises(RegistryError, match="larger-model"):
+        registry.approve(node_id, "12345678", OWNER, ["split-inference"])
     with pytest.raises(RegistryError, match="smart-home"):
         registry.approve(node_id, "12345678", OWNER, ["home-assistant-host"])
     with pytest.raises(RegistryError, match="does not exist"):
@@ -423,3 +426,115 @@ def test_core_does_not_import_federation_yet():
         if "federation" in path.parts:
             continue
         assert "freya.federation" not in path.read_text(encoding="utf-8"), path
+
+
+# Addresses and the tailnet
+
+TAILSCALE_STATUS = json.dumps({
+    "Self": {"HostName": "astra", "TailscaleIPs": ["100.64.0.1"]},
+    "Peer": {
+        "key1": {
+            "HostName": "old-thinkpad",
+            "DNSName": "old-thinkpad.tail1234.ts.net.",
+            "TailscaleIPs": ["100.101.102.103", "fd7a:115c:a1e0::1"],
+            "OS": "windows",
+            "Online": True,
+        },
+        "key2": {
+            "HostName": "phone\x1b[2J",
+            "DNSName": "evil.example.com.",
+            "TailscaleIPs": ["8.8.8.8", "100.90.1.2"],
+            "OS": "android",
+            "Online": False,
+        },
+        "key3": {"HostName": "no-address", "TailscaleIPs": ["8.8.4.4"]},
+    },
+})
+
+
+@pytest.mark.parametrize("host, kind", [
+    ("127.0.0.1", network.LOOPBACK),
+    ("::1", network.LOOPBACK),
+    ("100.101.102.103", network.TAILNET),
+    ("[fd7a:115c:a1e0::1]", network.TAILNET),
+    ("old-thinkpad.tail1234.ts.net", network.TAILNET),
+    ("192.168.1.20", network.HOME),
+    ("10.0.0.5", network.HOME),
+    ("fe80::1", network.HOME),
+    ("8.8.8.8", network.PUBLIC),
+    ("laptop.example.com", network.INVALID),
+    ("laptop", network.INVALID),
+    ("ts.net", network.INVALID),
+    ("", network.INVALID),
+    ("192.168.1.2\n", network.INVALID),
+])
+def test_addresses_are_classified(host, kind):
+    assert network.classify_address(host) == kind
+
+
+def test_workers_live_on_the_home_network_or_the_tailnet_only():
+    assert network.worker_address_allowed("192.168.1.20")
+    assert network.worker_address_allowed("old-thinkpad.tail1234.ts.net")
+    assert not network.worker_address_allowed("8.8.8.8")
+    assert not network.worker_address_allowed("127.0.0.1")
+    assert not network.worker_address_allowed("laptop.example.com")
+
+
+def test_tailnet_devices_are_read_and_cleaned():
+    devices, problem = network.read_tailnet(run=lambda: TAILSCALE_STATUS)
+
+    assert problem == ""
+    assert [device["name"] for device in devices] == ["old-thinkpad", "phone[2J"]
+    thinkpad, phone = devices
+    assert thinkpad["dns_name"] == "old-thinkpad.tail1234.ts.net"
+    assert thinkpad["online"] is True
+    assert phone["addresses"] == ["100.90.1.2"]
+    assert phone["dns_name"] == ""
+
+
+def test_no_tailscale_or_bad_status_lists_nothing():
+    devices, problem = network.read_tailnet(run=lambda: None)
+    assert devices == [] and "not installed" in problem
+    devices, problem = network.read_tailnet(run=lambda: "not json")
+    assert devices == [] and "could not be read" in problem
+
+
+def test_an_offer_records_where_the_machine_is(registry):
+    node_id = registry.record_offer(
+        make_offer(), address="old-thinkpad.tail1234.ts.net"
+    )
+    node = registry.waiting()[0]
+    assert node["node_id"] == node_id
+    assert node["address"] == "old-thinkpad.tail1234.ts.net"
+    assert node["network"] == "tailnet"
+    with pytest.raises(RegistryError, match="home network or the tailnet"):
+        registry.record_offer(make_offer(), address="8.8.8.8")
+
+
+def test_being_on_the_tailnet_enrolls_nothing(tmp_path, clock):
+    registry = NodeRegistry(tmp_path / "nodes.json", clock=clock)
+    lines = []
+
+    assert federation_main(
+        ["tailnet"], registry=registry, out=lines.append,
+        tailnet=lambda: network.read_tailnet(run=lambda: TAILSCALE_STATUS),
+    ) == 0
+
+    assert registry.nodes() == []
+    assert any("old-thinkpad" in line and "not offered yet" in line for line in lines)
+    assert any("does not make a machine a worker" in line for line in lines)
+
+
+def test_enrolling_a_sandbox_host_shows_its_conditions(tmp_path, clock):
+    registry = NodeRegistry(tmp_path / "nodes.json", clock=clock)
+    node_id = registry.record_offer(make_offer(), address="192.168.1.20")
+    lines = []
+
+    assert federation_main(
+        ["approve", node_id, "--role", "sandbox-host"], registry=registry,
+        read_code=lambda prompt: "12345678", out=lines.append,
+    ) == 0
+
+    assert registry.nodes()[0]["roles"] == ["sandbox-host"]
+    assert any("code-sandbox.md" in line for line in lines)
+    assert any("worker channel" in line for line in lines)

@@ -2,7 +2,8 @@
 The owner's commands for machines that could lend Freya hardware.
 
     python -m freya.federation profile [--save FILE] [--name NAME]
-    python -m freya.federation add FILE
+    python -m freya.federation add FILE [--address ADDRESS]
+    python -m freya.federation tailnet
     python -m freya.federation nodes
     python -m freya.federation approve NODE [--role ROLE] [--days N]
     python -m freya.federation decline NODE
@@ -28,7 +29,8 @@ from freya.federation.registry import (
     OwnerApproval,
     RegistryError,
 )
-from freya.federation.roles import ROLES, suggest_roles
+from freya.federation.network import read_tailnet
+from freya.federation.roles import ROLES, SANDBOX_HOST_CONDITIONS, suggest_roles
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 REGISTRY_FILE = "federation_nodes.json"
@@ -44,6 +46,8 @@ def _show_node(node, out):
         f"{', expired' if node.get('expired') else ''}]")
     for line in node_profile.describe(node["profile"]):
         out(f"    {line}")
+    if node.get("address"):
+        out(f"    Reached at {node['address']} ({node['network']})")
     if node["state"] == "enrolled":
         out(f"    Enrolled for: {', '.join(node['roles'])}; "
             f"until {_date(node['expires_at'])}")
@@ -56,7 +60,29 @@ def _show_node(node, out):
             out(f"      - {suggestion.role}{marker}: {suggestion.reason}")
 
 
-def main(argv=None, registry=None, read_code=input, out=print):
+def _show_tailnet(registry, read, out):
+    devices, problem = read()
+    if problem:
+        out(problem)
+        return 1
+    known = {node.get("address") for node in registry.nodes()}
+    if not devices:
+        out("No other machines are on the tailnet.")
+    for device in devices:
+        reached = device["dns_name"] or device["addresses"][0]
+        enrolled = known & ({device["dns_name"]} | set(device["addresses"]))
+        status = "already on Freya's list" if enrolled else "not offered yet"
+        out(f"{device['name']} ({device['os'] or 'unknown system'}, "
+            f"{'online' if device['online'] else 'offline'}): {reached}, {status}")
+    if devices:
+        out("Being on the tailnet does not make a machine a worker. To offer "
+            "one, run profile.py on it and add the file here with "
+            "--address set to its tailnet name.")
+    return 0
+
+
+def main(argv=None, registry=None, read_code=input, out=print,
+         tailnet=read_tailnet):
     parser = argparse.ArgumentParser(prog="python -m freya.federation")
     commands = parser.add_subparsers(dest="command", required=True)
 
@@ -66,6 +92,9 @@ def main(argv=None, registry=None, read_code=input, out=print):
 
     add = commands.add_parser("add", help="record a machine's offer file")
     add.add_argument("file")
+    add.add_argument("--address", help="its home-network or tailnet address")
+
+    commands.add_parser("tailnet", help="machines on the owner's tailnet")
 
     commands.add_parser("nodes", help="list machines and offers")
 
@@ -115,12 +144,15 @@ def main(argv=None, registry=None, read_code=input, out=print):
             except (OSError, ValueError):
                 out("That file could not be read as a machine offer.")
                 return 1
-            node_id = registry.record_offer(offer)
+            node_id = registry.record_offer(offer, address=arguments.address)
             out(f"Recorded as {node_id}. Nothing was enrolled.")
             for node in registry.waiting():
                 if node["node_id"] == node_id:
                     _show_node(node, out)
             out(f"To enroll it: python -m freya.federation approve {node_id}")
+
+        elif arguments.command == "tailnet":
+            return _show_tailnet(registry, tailnet, out)
 
         elif arguments.command == "nodes":
             listed = registry.nodes()
@@ -133,6 +165,10 @@ def main(argv=None, registry=None, read_code=input, out=print):
 
         elif arguments.command == "approve":
             roles = arguments.role or ["model-worker"]
+            if "sandbox-host" in roles:
+                out("A sandbox host is allowed only while all of these hold:")
+                for condition in SANDBOX_HOST_CONDITIONS:
+                    out(f"  - {condition}")
             code = read_code("Join code shown on the machine: ")
             registry.approve(arguments.node, code, owner, roles, arguments.days)
             out(f"{arguments.node} is enrolled for {', '.join(roles)} for "

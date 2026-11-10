@@ -50,12 +50,11 @@ ROLES = {
         "Splitting one model across machines waits for the runtime "
         "choice and a measured benchmark (the larger-model work).",
     ),
+    # Allowed by the owner's exception to decision 10 (2026-11-10),
+    # under the conditions in SANDBOX_HOST_CONDITIONS.
     "sandbox-host": Role(
         "sandbox-host",
         "Runs code a model wrote, away from the main PC",
-        "Running code on another machine is an effect across machines, "
-        "which decision 10 rules out until the owner agrees a written "
-        "exception.",
     ),
     "home-assistant-host": Role(
         "home-assistant-host",
@@ -65,8 +64,21 @@ ROLES = {
     ),
 }
 
-# Inference changes nothing on the lender (decision 10, Q3), so these
-# are the only roles a machine may be enrolled for now.
+# What enrolling a sandbox host commits to. The exception to decision
+# 10 holds only while all of these do; they are shown to the owner at
+# enrollment, and the code that sends runs to a laptop must check them.
+SANDBOX_HOST_CONDITIONS = (
+    "Runs are made only inside a sandbox that meets code-sandbox.md: no "
+    "network, none of the machine's own files, no credentials, nothing "
+    "kept between runs.",
+    "The machine holds nothing from Freya's data folder.",
+    "It reaches the main PC only through the worker channel; it is on a "
+    "guest network or a tailnet rule that blocks everything else.",
+    "Each run is approved as it would be on the main PC.",
+)
+
+# Inference changes nothing on the lender (decision 10, Q3); a sandbox
+# host is allowed by the owner's exception. Everything else waits.
 ROLES_ALLOWED_NOW = frozenset(
     name for name, role in ROLES.items() if not role.why_not_yet
 )
