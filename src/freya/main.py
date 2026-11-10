@@ -23,6 +23,10 @@ from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
 from freya.config import COMFYUI_AT_START
 from freya.file_access import FOLDER_COMMANDS, FileAccess
+from freya.tools.security_tools import (
+    SELF_CHECK_COMMANDS,
+    run_self_check_command,
+)
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -1621,6 +1625,9 @@ def main(window_only=False):
 
                     memory_command=freya.memory_command,
                     folder_command=file_access.command,
+                    self_check=lambda: run_self_check_command(
+                        control_plane.broker
+                    ),
 
                     request_quit=(
 
@@ -1820,6 +1827,9 @@ def main(window_only=False):
 
 
             if file_access.command(user_input):
+                continue
+            if user_input.lower() in SELF_CHECK_COMMANDS:
+                print(f"\n{run_self_check_command(control_plane.broker)}\n")
                 continue
             if user_input.lower() == WINDOW_COMMAND:
 

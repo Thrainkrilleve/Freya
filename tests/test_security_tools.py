@@ -326,3 +326,205 @@ def test_broker_denies_self_assessment_without_seed(store, policy, audit):
     result = broker.invoke(SELF_ASSESSMENT)
     assert not result.success
     assert result.outcome == "denied"
+
+
+# --- release-line checks ----------------------------------------------
+
+
+def _capability(name, *, destructive=False, model_tool=False):
+    return CapabilityDefinition(
+        name=name,
+        description="test",
+        provider="test-provider",
+        handler=lambda: None,
+        destructive=destructive,
+        metadata={"model_tool": True} if model_tool else {},
+    )
+
+
+def test_unwritten_audit_without_a_broker_is_a_warning():
+    assert sec.check_unwritten_audit(context())["status"] == WARN
+
+
+def test_unwritten_audit_clean_broker_passes():
+    broker = types.SimpleNamespace(pending_audit_records=0, lost_audit_records=0)
+    assert sec.check_unwritten_audit(context(broker=broker))["status"] == PASS
+
+
+def test_waiting_audit_records_are_a_warning():
+    broker = types.SimpleNamespace(pending_audit_records=2, lost_audit_records=0)
+    assert sec.check_unwritten_audit(context(broker=broker))["status"] == WARN
+
+
+def test_lost_audit_records_are_a_failure():
+    broker = types.SimpleNamespace(pending_audit_records=256, lost_audit_records=1)
+    finding = sec.check_unwritten_audit(context(broker=broker))
+    assert finding["status"] == FAIL
+
+
+def test_real_broker_reports_no_unwritten_records(store, policy, audit):
+    broker = CapabilityBroker(CapabilityRegistry(), policy, audit)
+    assert sec.check_unwritten_audit(context(broker=broker))["status"] == PASS
+
+
+def test_safe_model_tools_pass():
+    registry = CapabilityRegistry()
+    registry.register(_capability("system.cpu", model_tool=True))
+    registry.register(_capability(SELF_ASSESSMENT))
+    finding = sec.check_model_tool_exposure(context(capabilities=registry))
+    assert finding["status"] == PASS
+
+
+def test_destructive_model_tool_fails():
+    registry = CapabilityRegistry()
+    registry.register(_capability("files.delete", destructive=True, model_tool=True))
+    finding = sec.check_model_tool_exposure(context(capabilities=registry))
+    assert finding["status"] == FAIL
+
+
+@pytest.mark.parametrize("name", sec.OWNER_ONLY_CAPABILITIES)
+def test_owner_only_capability_offered_to_the_model_fails(name):
+    registry = CapabilityRegistry()
+    registry.register(_capability(name, model_tool=True))
+    finding = sec.check_model_tool_exposure(context(capabilities=registry))
+    assert finding["status"] == FAIL
+
+
+def test_owner_locks_closed_by_default(policy):
+    finding = sec.check_owner_locks(context(policy=policy))
+    assert finding["status"] == PASS
+    assert "closed" in finding["detail"]
+
+
+def test_cloud_route_opened_by_the_owners_switch_passes(policy):
+    policy.add_rule(
+        LOCAL_OWNER.actor, sec.CLOUD_ROUTE_CAPABILITY, "allow",
+        sec.CLOUD_SWITCH_REASON,
+    )
+    finding = sec.check_owner_locks(context(policy=policy))
+    assert finding["status"] == PASS
+    assert "open" in finding["detail"]
+
+
+def test_cloud_route_opened_any_other_way_fails(policy):
+    policy.add_rule(
+        LOCAL_OWNER.actor, sec.CLOUD_ROUTE_CAPABILITY, "allow", "seeded",
+    )
+    assert sec.check_owner_locks(context(policy=policy))["status"] == FAIL
+
+
+def test_code_run_allowed_fails(policy):
+    policy.add_rule(LOCAL_OWNER.actor, sec.CODE_RUN_CAPABILITY, "allow", "test")
+    assert sec.check_owner_locks(context(policy=policy))["status"] == FAIL
+
+
+def test_switch_reason_matches_the_cloud_tab():
+    from freya.delegation.service import SWITCH_REASON
+
+    assert sec.CLOUD_SWITCH_REASON == SWITCH_REASON
+
+
+def test_owner_only_names_match_the_real_capabilities():
+    from freya.delegation.service import CLOUD_SETTINGS_CHANGE
+    from freya.providers.model.claude_plan import CLOUD_ANTHROPIC_PLAN_ASK
+    from freya.sandbox.service import CODE_RUN
+
+    assert sec.CLOUD_ROUTE_CAPABILITY == CLOUD_ANTHROPIC_PLAN_ASK
+    assert sec.CODE_RUN_CAPABILITY == CODE_RUN
+    for name in (CLOUD_ANTHROPIC_PLAN_ASK, CLOUD_SETTINGS_CHANGE, CODE_RUN):
+        assert name in sec.OWNER_ONLY_CAPABILITIES
+
+
+def test_local_endpoints_pass_as_shipped():
+    assert sec.check_local_endpoints(context())["status"] == PASS
+
+
+def test_local_endpoints_fail_for_a_remote_ollama(monkeypatch):
+    from freya.providers.model import ollama as ollama_provider
+
+    monkeypatch.setattr(ollama_provider, "LOCAL_OLLAMA_HOST", "http://10.0.0.5:11434")
+    assert sec.check_local_endpoints(context())["status"] == FAIL
+
+
+def test_local_endpoints_fail_for_a_remote_world_view(monkeypatch):
+    from freya import config
+
+    monkeypatch.setattr(config, "WORLD_VIEW_ENABLED", True)
+    monkeypatch.setattr(config, "WORLD_VIEW_URL", "http://example.com:4173")
+    assert sec.check_local_endpoints(context())["status"] == FAIL
+
+
+def test_child_environment_passes_as_shipped():
+    assert sec.check_child_environment(context())["status"] == PASS
+
+
+def test_child_environment_fails_when_the_filter_leaks(monkeypatch):
+    from freya import child_environment as module
+
+    monkeypatch.setattr(
+        module, "child_environment",
+        lambda extra=None, environ=None: dict(environ or {}),
+    )
+    assert sec.check_child_environment(context())["status"] == FAIL
+
+
+def test_checkpoint_unset_is_a_warning(monkeypatch):
+    from freya import config
+
+    monkeypatch.setattr(config, "AUDIT_CHECKPOINT_PATH", None)
+    assert sec.check_audit_checkpoint(context())["status"] == WARN
+
+
+def test_checkpoint_set_passes(monkeypatch):
+    from freya import config
+
+    monkeypatch.setattr(config, "AUDIT_CHECKPOINT_PATH", "Z:/audit/checkpoints.log")
+    assert sec.check_audit_checkpoint(context())["status"] == PASS
+
+
+# --- /self-check -------------------------------------------------------
+
+
+def test_self_check_command_runs_through_the_broker(store, policy, audit):
+    broker = _wire_broker(store, policy, audit, seed=True)
+    before = audit.head()
+    text = sec.run_self_check_command(broker)
+    assert text.startswith("Security self-assessment")
+    # The run was written to the audit log.
+    assert audit.head() != before
+
+
+def test_self_check_command_reports_a_denial(store, policy, audit):
+    broker = _wire_broker(store, policy, audit, seed=False)
+    text = sec.run_self_check_command(broker)
+    assert "did not run" in text
+    assert "denied" in text
+
+
+def test_self_check_in_the_window(tmp_path, capsys):
+    from freya.events import EventBus
+    from freya.main import normalize_command
+    from freya.settings import Settings
+    from freya.window_commands import CommandContext, run_window_command
+
+    asked = []
+    context_ = CommandContext(
+        bus=EventBus(),
+        voice=None,
+        listener=None,
+        settings=Settings(tmp_path / "settings.json"),
+        window=None,
+        normalize=normalize_command,
+        run_image=lambda prompt: None,
+        publish_status=lambda: None,
+        self_check=lambda: asked.append(1) or "Security self-assessment: ok",
+    )
+    run_window_command("/self-check", context_)
+    assert asked == [1]
+    assert "Security self-assessment: ok" in capsys.readouterr().out
+
+
+def test_self_check_is_in_the_window_help():
+    from freya.window_commands import HELP_TEXT
+
+    assert "/self-check" in HELP_TEXT

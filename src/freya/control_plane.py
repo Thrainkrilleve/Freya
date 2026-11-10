@@ -614,6 +614,7 @@ def build_local_control_plane(
         owner_actor=LOCAL_OWNER.actor,
         package_root=package_root,
         repo_root=repo_root,
+        broker=broker,
     )
     capabilities.register(
         security_self_assessment_capability(

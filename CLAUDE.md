@@ -566,6 +566,19 @@ administrator. SQLite durability settings are provisional pending ADR-015; each 
 invocation currently costs roughly 30–60 ms in synchronous writes. Default policy rules
 are applied once per named seed (`policy_seed` table), so removed rules stay removed.
 
+Security self-assessment: `tools/security_tools.py` registers
+`security.self_assessment` (provider `security-local`, policy seed
+`alpha-self-assessment`), which reads Freya's own state and reports whether her
+security rules hold: audit chain and lost records, deny-by-default policy, the cloud
+and `code.run` locks, which tools the model is offered, local endpoints, the child
+environment filter, `.gitignore` and tracked files, the gateway's binding and CSP, and
+avatar isolation. The owner runs it with `/self-check` (both command paths). Keep
+these rules: it is read-only and fixes nothing; it is never a model tool; a check
+that cannot run is a warning, never a crash; it never reads personal data; the report
+is never sent off this machine. When a new owner-only capability or lock is added,
+add it to `OWNER_ONLY_CAPABILITIES` or `check_owner_locks`. Design and open decisions:
+`docs/design/security-self-assessment.md` (proposal NEW-EA, not adopted).
+
 Code sandbox: `freya.sandbox` is the contract for running code a model wrote
 (`contract.py`) and the capability `code.run` on provider `code-sandbox-local`
 (`service.py`). There is no real sandbox yet, only a stand-in in the tests, and

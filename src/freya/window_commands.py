@@ -6,6 +6,7 @@ from typing import Callable, Optional
 
 from freya.file_access import FOLDER_COMMANDS
 from freya.hands_free import LISTENING_COMMANDS, handle_listening_command
+from freya.tools.security_tools import SELF_CHECK_COMMANDS
 
 
 HELP_COMMAND = "/help"
@@ -18,7 +19,7 @@ KEYBOARD_ONLY = ("/talk", "/listen", "/conversation", "/voice-file")
 HELP_TEXT = (
     "Commands: /names, /name add <name>, /name remove <name>, /mute, "
     "/unmute, /interrupt, /image <description>, /folders, /folder open "
-    "<path>, /folder close <path>, /terminal, /help. "
+    "<path>, /folder close <path>, /self-check, /terminal, /help. "
     "/memory-help lists the memory commands."
 )
 
@@ -49,6 +50,10 @@ class CommandContext:
     # Opens and closes the folders Freya may read: given a line, it
     # answers on the console and returns True if it was its command.
     folder_command: Optional[Callable[[str], bool]] = None
+
+    # Runs the read-only security self-check through the broker and
+    # returns the report as text.
+    self_check: Optional[Callable[[], str]] = None
 
 
 class _Both(io.TextIOBase):
@@ -120,6 +125,13 @@ def _dispatch(line: str, context: CommandContext) -> bool:
             print("Freya: Folders cannot be opened from here.")
         else:
             context.folder_command(line)
+        return True
+
+    if command in SELF_CHECK_COMMANDS:
+        if context.self_check is None:
+            print("Freya: The security self-check cannot be run from here.")
+        else:
+            print(f"Freya: {context.self_check()}")
         return True
 
     if command == "/image":
