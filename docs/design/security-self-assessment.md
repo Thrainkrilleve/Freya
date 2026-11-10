@@ -18,7 +18,9 @@ nothing. Fixing a finding is a separate, reviewed change (NEW-D).
 
 The owner runs it with `/self-check` in the terminal or in the window's chat. It goes
 through the broker, so each run is policy-checked and audited like any other action.
-It is not a model tool, so a model decision, a spoken sentence or untrusted tool
+As Freya starts she runs it once and prints one line: the result, and the titles
+of any checks that did not pass, never their evidence (`FREYA_SELF_CHECK_AT_START=0`
+skips it). It is not a model tool, so a model decision, a spoken sentence or untrusted tool
 output cannot start it.
 
 ## Checks
@@ -67,7 +69,7 @@ reads the real environment's values. No check reads `data/freya_memory.db`.
 
 ## Open decisions for the owner
 
-1. Where it runs: `/self-check` only (built), also a Security tab in the window, also
-   automatically at startup with a one-line summary.
+1. Where it runs: `/self-check` and the startup line are built; a Security tab in the
+   window is not.
 2. Whether the model may read a finished report (default: no, owner-only).
 3. Whether Phase 2 is worth a network exception.

@@ -528,3 +528,54 @@ def test_self_check_is_in_the_window_help():
     from freya.window_commands import HELP_TEXT
 
     assert "/self-check" in HELP_TEXT
+
+
+# --- startup line ------------------------------------------------------
+
+
+def test_startup_line_names_only_titles(store, policy, audit):
+    broker = _wire_broker(store, policy, audit, seed=True)
+    line = sec.self_check_startup_line(broker)
+    assert line.startswith("Security self-check")
+    assert "\n" not in line
+
+
+def test_startup_line_when_everything_passes():
+    report = {
+        "overall": PASS,
+        "summary": {PASS: 3, WARN: 0, FAIL: 0, "total": 3},
+        "findings": [],
+    }
+    broker = types.SimpleNamespace(
+        invoke=lambda name: types.SimpleNamespace(success=True, result=report)
+    )
+    assert sec.self_check_startup_line(broker) == (
+        "Security self-check: all 3 checks passed."
+    )
+
+
+def test_startup_line_hides_evidence():
+    report = {
+        "overall": FAIL,
+        "summary": {PASS: 0, WARN: 0, FAIL: 1, "total": 1},
+        "findings": [
+            {
+                "title": "No personal data or keys tracked by git",
+                "status": FAIL,
+                "detail": "git is tracking files that must never be committed.",
+                "evidence": ["data/secret.key"],
+            }
+        ],
+    }
+    broker = types.SimpleNamespace(
+        invoke=lambda name: types.SimpleNamespace(success=True, result=report)
+    )
+    line = sec.self_check_startup_line(broker)
+    assert "No personal data or keys tracked by git" in line
+    assert "secret.key" not in line
+    assert "/self-check" in line
+
+
+def test_startup_line_when_denied(store, policy, audit):
+    broker = _wire_broker(store, policy, audit, seed=False)
+    assert "did not run (denied)" in sec.self_check_startup_line(broker)

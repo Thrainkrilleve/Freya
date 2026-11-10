@@ -22,10 +22,12 @@ from freya.delegation.service import build_cloud_delegation, build_turn_delegati
 from freya.storage.backup import back_up_on_close
 from freya.config import OPEN_WINDOW, MODEL
 from freya.config import COMFYUI_AT_START
+from freya.config import SELF_CHECK_AT_START
 from freya.file_access import FOLDER_COMMANDS, FileAccess
 from freya.tools.security_tools import (
     SELF_CHECK_COMMANDS,
     run_self_check_command,
+    self_check_startup_line,
 )
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
@@ -1027,6 +1029,12 @@ def main(window_only=False):
     for message in control_plane.startup_messages():
 
         print(message)
+
+    # A read-only look at whether Freya's security rules hold, through
+    # the broker like any other action. FREYA_SELF_CHECK_AT_START=0
+    # turns it off; /self-check gives the full report.
+    if SELF_CHECK_AT_START:
+        print(self_check_startup_line(control_plane.broker))
 
     # Load the Ollama models while the voice engine is starting up.
 

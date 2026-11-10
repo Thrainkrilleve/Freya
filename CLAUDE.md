@@ -572,7 +572,9 @@ Security self-assessment: `tools/security_tools.py` registers
 security rules hold: audit chain and lost records, deny-by-default policy, the cloud
 and `code.run` locks, which tools the model is offered, local endpoints, the child
 environment filter, `.gitignore` and tracked files, the gateway's binding and CSP, and
-avatar isolation. The owner runs it with `/self-check` (both command paths). Keep
+avatar isolation. The owner runs it with `/self-check` (both command paths); as she starts she
+prints one line naming only the titles of checks that did not pass
+(`FREYA_SELF_CHECK_AT_START=0` skips it). Keep
 these rules: it is read-only and fixes nothing; it is never a model tool; a check
 that cannot run is a warning, never a crash; it never reads personal data; the report
 is never sent off this machine. When a new owner-only capability or lock is added,

@@ -859,3 +859,27 @@ def run_self_check_command(broker) -> str:
             f"({result.outcome}: {result.error or 'no reason given'})."
         )
     return format_report(result.result)
+
+
+def self_check_startup_line(broker) -> str:
+    """
+    The one line Freya prints as she starts: the overall result, and
+    which checks did not pass by title only. The details stay behind
+    ``/self-check``, so a weakness is not spelled out on every start.
+    """
+    result = broker.invoke(SELF_ASSESSMENT)
+    if not result.success:
+        return f"Security self-check did not run ({result.outcome})."
+    report = result.result
+    summary = report["summary"]
+    if report["overall"] == PASS:
+        return f"Security self-check: all {summary['total']} checks passed."
+    titles = [
+        finding["title"]
+        for finding in report["findings"]
+        if finding["status"] != PASS
+    ]
+    return (
+        f"Security self-check: {summary[FAIL]} failed, {summary[WARN]} "
+        f"warnings ({'; '.join(titles)}). Type /self-check for details."
+    )
