@@ -47,6 +47,7 @@ DATA_KINDS = (
     DataKind("screening_corrections.json", FAST, "The not-private and always-private lists", True),
     DataKind("sent_briefs.jsonl", FAST, "The record of what was sent to cloud models", True),
     DataKind("model_record.json", FAST, "What each model measured"),
+    DataKind("federation_nodes.json", FAST, "Machines offered or enrolled to lend hardware"),
     DataKind("avatar_settings.json", FAST, "Avatar size, place and limits"),
     DataKind("avatar_library.json", FAST, "The list of saved avatars"),
     DataKind("voice_profiles.json", FAST, "Saved voices"),

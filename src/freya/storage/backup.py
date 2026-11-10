@@ -42,6 +42,7 @@ FILES = (
     "avatar_settings.json",
     "avatar_library.json",
     "storage_locations.json",
+    "federation_nodes.json",
 )
 
 # Set to 0 to stop the backup Freya makes when she closes.
