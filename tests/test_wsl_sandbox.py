@@ -32,6 +32,8 @@ from freya.sandbox.wsl import (
 from freya.sandbox.wsl_setup import WSL_CONF, setup_steps
 
 
+LINUX_ONLY = pytest.mark.skipif(sys.platform == "win32", reason="the runner runs inside a Linux container")
+
 RUNNER = Path(__file__).resolve().parents[1] / "src" / "freya" / "sandbox" / "image" / "runner.py"
 
 FILES = {
@@ -247,7 +249,7 @@ def test_the_runner_imports_nothing_from_freya():
     assert not any(name.split(".")[0] == "freya" for name in names)
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the runner runs inside a Linux container")
+@LINUX_ONLY
 def test_the_runner_runs_python_and_reports_the_exit_code(tmp_path, monkeypatch, capsys):
     runner = load_runner(tmp_path, monkeypatch)
     files = {"main.py": "import sys\nprint('hello')\nsys.exit(3)\n"}
@@ -257,7 +259,7 @@ def test_the_runner_runs_python_and_reports_the_exit_code(tmp_path, monkeypatch,
     assert result.exit_code == 3 and "hello" in result.output
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the runner runs inside a Linux container")
+@LINUX_ONLY
 def test_the_runner_runs_pytest(tmp_path, monkeypatch, capsys):
     runner = load_runner(tmp_path, monkeypatch)
 
@@ -267,7 +269,7 @@ def test_the_runner_runs_pytest(tmp_path, monkeypatch, capsys):
     assert "1 passed" in result.output
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the runner runs inside a Linux container")
+@LINUX_ONLY
 def test_the_runner_stops_code_at_its_time_limit(tmp_path, monkeypatch, capsys):
     runner = load_runner(tmp_path, monkeypatch)
 
@@ -276,7 +278,7 @@ def test_the_runner_stops_code_at_its_time_limit(tmp_path, monkeypatch, capsys):
     assert result.timed_out and result.exit_code is None
 
 
-@pytest.mark.skipif(sys.platform == "win32", reason="the runner runs inside a Linux container")
+@LINUX_ONLY
 def test_the_runner_cuts_enormous_output(tmp_path, monkeypatch, capsys):
     runner = load_runner(tmp_path, monkeypatch)
     files = {"main.py": "import sys\nsys.stdout.write('x' * 1_000_000)\n"}
@@ -286,6 +288,7 @@ def test_the_runner_cuts_enormous_output(tmp_path, monkeypatch, capsys):
     assert result.truncated and len(result.output) == MAX_OUTPUT_CHARACTERS
 
 
+@LINUX_ONLY
 def test_the_runner_refuses_a_name_outside_the_work_folder(tmp_path, monkeypatch, capsys):
     runner = load_runner(tmp_path, monkeypatch)
 
