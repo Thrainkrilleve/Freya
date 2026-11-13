@@ -179,3 +179,33 @@ def test_the_hook_lets_ordinary_calls_through():
     result = run_hook({"tool_name": "Read", "tool_input": {"file_path": str(ROOT / "README.md")}})
     assert result.returncode == 0
     assert result.stderr == ""
+
+
+@pytest.mark.parametrize("pattern", ["GIT_COMMIT", "GIT_PUSH"])
+def test_git_patterns_answer_quickly_on_many_short_options(pattern):
+    # Each option may take one argument; an argument that could itself be
+    # read as an option once made the match try every split, so a long
+    # run of short options took minutes.
+    import time
+
+    command = "git" + " -! -!" * 40 + " x"
+    started = time.monotonic()
+    getattr(guard, pattern).search(command)
+
+    assert time.monotonic() - started < 1
+
+
+@pytest.mark.parametrize(
+    "command, found",
+    [
+        ("git commit -m x", True),
+        ("git -C repo commit", True),
+        ("git -c user.name=a commit", True),
+        ("git -p commit", True),
+        ("git --no-pager -C some/path commit --amend", True),
+        ("git status", False),
+        ("git log --grep commit", False),
+    ],
+)
+def test_git_commit_is_still_recognised(command, found):
+    assert bool(guard.GIT_COMMIT.search(command)) is found

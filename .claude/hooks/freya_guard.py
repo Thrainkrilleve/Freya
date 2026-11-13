@@ -188,8 +188,12 @@ def check_edit(tool_name, tool_input, repo=REPO):
     return None
 
 
-GIT_COMMIT = re.compile(r"\bgit\b(?:\s+-\S+(?:\s+\S+)?)*\s+commit\b")
-GIT_PUSH = re.compile(r"\bgit\b(?:\s+-\S+(?:\s+\S+)?)*\s+push\b(?P<rest>[^;&|]*)")
+# Options before the git command, each with at most one argument. The
+# argument may not start with "-", so a run of options can be split only
+# one way; otherwise matching a long run takes exponential time.
+GIT_OPTIONS = r"(?:\s+-\S+(?:\s+[^\s-]\S*)?)*"
+GIT_COMMIT = re.compile(r"\bgit\b" + GIT_OPTIONS + r"\s+commit\b")
+GIT_PUSH = re.compile(r"\bgit\b" + GIT_OPTIONS + r"\s+push\b(?P<rest>[^;&|]*)")
 FORCE = re.compile(r"(?:^|\s)(?:-f|--force(?:-with-lease)?)(?:\s|=|$)")
 PUSH_TO_MAIN = re.compile(r"(?:^|[\s:])(?:refs/heads/)?main(?:\s|$)")
 DELETE_DATA = re.compile(
