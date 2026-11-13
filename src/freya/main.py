@@ -46,6 +46,7 @@ from freya.core.capabilities import LOCAL_OWNER
 from freya.single_instance import claim as claim_single_instance
 from freya.single_instance import show_message
 from freya.tools.tool_router import FreyaToolRouter
+from freya.voice.gate import NOT_AUTHORIZED, install_voice_gate
 from freya.voice.stt import FreyaSTT
 from freya.voice.tts import FreyaVoice
 
@@ -392,7 +393,17 @@ def handle_normal_input(
     gpu_manager,
     user_input,
     source="typed",
+    voice_gate=None,
 ):
+    # A spoken turn is authorized here, before any tool. The gate
+    # records the decision and does not run the tool itself. Typed
+    # turns do not pass a gate; their tools use the same broker.
+    if source == "voice":
+        if voice_gate is None or not voice_gate.accept_turn(user_input):
+            print(f"\nFreya: {NOT_AUTHORIZED}\n")
+            EVENTS.publish("notice", text=NOT_AUTHORIZED)
+            return
+
     EVENTS.publish(
         "user",
         text=user_input,
@@ -435,6 +446,7 @@ def run_conversation_mode(
     tool_router,
     image_generator,
     gpu_manager,
+    voice_gate=None,
 ):
     print()
     print("Conversation mode started.")
@@ -515,6 +527,7 @@ def run_conversation_mode(
             gpu_manager,
             transcript,
             source="voice",
+            voice_gate=voice_gate,
         )
 
         # Important for v1: do not reopen the microphone
@@ -612,6 +625,13 @@ def main(window_only=False):
     # chose for Freya last time.
     voice_studio = build_voice_studio(voice)
     voice_studio.restore_live_voice()
+    # Wake, a spoken turn, speech, and the Voice tab go through the
+    # broker. The seed allows those four and no tool.
+    voice_gate = install_voice_gate(
+        control_plane,
+        voice,
+        voice_studio.handle,
+    )
     # The on-screen avatar: a separate overlay program. Its
     # capabilities go through the broker like any others, and it
     # is told when Freya starts and stops speaking.
@@ -692,6 +712,10 @@ def main(window_only=False):
         with gate.spoken_turn() as acquired:
             if not acquired:
                 return
+            if not voice_gate.accept_wake():
+                print(f"\nFreya: {NOT_AUTHORIZED}\n")
+                print("You: ", end="", flush=True)
+                return
             if not request:
                 print("\rYou (voice): Freya\n\nFreya: Yes?\n")
                 voice.speak("Yes?")
@@ -705,6 +729,7 @@ def main(window_only=False):
                     gpu_manager,
                     request,
                     source="voice",
+                    voice_gate=voice_gate,
                 )
             print("You: ", end="", flush=True)
 
@@ -915,7 +940,7 @@ def main(window_only=False):
             run_command=command_from_window,
             console_history=console_output.history,
             voice_state=voice_studio.describe,
-            voice_request=voice_studio.handle,
+            voice_request=voice_gate.studio,
             voice_clip=voice_studio.clips.read,
             media_request=media.handle if media else (lambda message: {"error": "Media is unavailable."}),
             media_stream=media.stream if media else (lambda ticket, header: None),
@@ -1008,6 +1033,7 @@ def main(window_only=False):
                         tool_router,
                         image_generator,
                         gpu_manager,
+                        voice_gate,
                     )
 
                 except Exception as exc:
@@ -1065,6 +1091,7 @@ def main(window_only=False):
                     gpu_manager,
                     transcript,
                     source="voice",
+                    voice_gate=voice_gate,
                 )
 
                 continue
@@ -1114,6 +1141,7 @@ def main(window_only=False):
                     gpu_manager,
                     transcript,
                     source="voice",
+                    voice_gate=voice_gate,
                 )
 
                 continue
@@ -1178,6 +1206,7 @@ def main(window_only=False):
                     gpu_manager,
                     transcript,
                     source="voice",
+                    voice_gate=voice_gate,
                 )
 
                 continue
