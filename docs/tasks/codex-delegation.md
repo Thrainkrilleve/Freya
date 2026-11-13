@@ -103,7 +103,7 @@ Acceptance:
 
 ### C-5 · Audit completeness test (UIA-14)
 
-Status: Ready
+Status: In review — PR #35
 
 Write a test-only PR proving every protected invocation leaves a complete audit trail.
 Use the existing fakes in `tests/conftest.py` and a control plane on a temporary
@@ -113,8 +113,9 @@ Acceptance:
 - Through the real broker, run: a chat, a streamed chat consumed to the end, a streamed
   chat abandoned partway, an embedding, a model tool call, a denied call (no policy
   rule), and a call to an unavailable capability.
-- For each allowed operation, assert one `decision`, one `dispatch` and one `outcome`
-  row share its `operation_id`; for the denied call, a `decision` row with
+- For each allowed operation, assert one `dispatch` row (carrying the allow decision)
+  and one `outcome` row share its `operation_id` (UIA-14 as amended by the owner,
+  2026-11-04: the dispatch row is the decision record); for the denied call, a `decision` row with
   `decision = 'deny'` and no dispatch.
 - Assert the audit chain verifies afterwards, and that no row contains prompt text or
   tool payloads (only the argument digest).
