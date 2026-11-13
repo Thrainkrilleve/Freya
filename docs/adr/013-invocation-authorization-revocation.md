@@ -15,7 +15,9 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   `alpha-model-runtime`, `alpha-model-background`, `alpha-conversation-recall`,
   `alpha-image-generate`, `alpha-file-read`, `alpha-world-view`, `alpha-avatar`,
   `alpha-avatar-library`, `alpha-avatar-creator`, `alpha-cloud-settings`,
-  `alpha-cloud-tighten`, `alpha-model-record`, `alpha-work-delegate`.
+  `alpha-cloud-tighten`, `alpha-model-record`, `alpha-work-delegate`,
+  `alpha-voice`. The voice seed allows `voice.wake`, `voice.turn`,
+  `voice.speak` and `voice.studio` only. It does not allow a tool.
 - **Identity:** one fixed principal, `local-owner`, for everything.
 - **Binding:** each dispatch row records the capability, the policy revision and
   grant epoch it was decided under, and a digest of the arguments, never the
