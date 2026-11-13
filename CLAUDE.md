@@ -432,13 +432,17 @@ semantic search or next start retries unembedded memories.
 Explicit forgetting removes a saved memory and its embedding, retained history and
 migration-plan copies in one transaction instead of archiving it. Edit and duplicate
 history remain supported. Exchange/conversation deletion removes text and search
-entries atomically and clears the affected summary. Current live context is rebuilt;
+entries atomically and clears the affected summary. The FTS5 index's own
+`secure-delete` option is turned on (without which the index keeps deleted words),
+and existing indexes are rebuilt once so words left by earlier deletions are cleared.
+Current live context is rebuilt;
 earlier summaries wait for authorized recall. These operations do not erase separate
 conversation records that repeat a saved fact, backups, exports or every physical
 disk copy, and do not implement restore-safe tombstones or full MEM-008 compliance.
 Memory tab answers go only to the requesting window. The first creation of conversation
 tables copies the database to `data/backups/`. Never print, commit or transmit its
 contents. Never access personal data as part of development tests.
+
 
 Always-on listening: the microphone stays open on a background thread while the
 keyboard prompt waits. Every utterance is transcribed locally and then discarded unless
