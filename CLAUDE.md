@@ -43,8 +43,10 @@ Rules for the spec:
   `127.0.0.1` and ignores `OLLAMA_HOST` and proxies, and a model that Ollama would run
   on its own servers makes the provider unhealthy: full context goes here, so "local"
   must be true.
-- `src/freya/core/` — `assistant.py`, `llm.py` (memory prompts; model calls go through
-  `model_runtime.py`, which asks the broker),
+- `src/freya/core/` — `assistant.py` (`FreyaAssistant`: the turn, and nothing else;
+  the memory commands, `/memories`, `/forget`, `/memory-help` and the rest, are
+  `memory_commands.py`, `MemoryCommands`, mixed into it), `llm.py` (memory prompts;
+  model calls go through `model_runtime.py`, which asks the broker),
   `capabilities/` (CapabilityRegistry, CapabilityBroker), `providers/`
   (ProviderRegistry), `policy/` (deny-by-default SQLite policy engine), `audit/`
   (hash-chained SQLite audit log, checkpoint sinks), `persistence/` (ControlStore and
@@ -365,7 +367,7 @@ tools, `files.list`, `files.read` and `files.search` (provider `file-reader-loca
 policy seed `alpha-file-read`), over the folders the owner has opened and nowhere
 else. No folder is open to start, and until one is the provider is unhealthy, so the
 tools are not offered at all. Only the owner's `/folders`, `/folder open <path>` and
-`/folder close <path>` (`file_access.py`, in both command paths) change the list,
+`/folder close <path>` (`file_access.py`, through the shared commands) change the list,
 kept as `readable_folders` in `data/freya_settings.json`; nothing the model can call
 does. Keep these rules: a path is resolved to where it really is before it is
 checked, so a link or junction cannot lead out; a refusal uses the same words
@@ -465,8 +467,11 @@ message and run by `window_commands.py`, which handles the same commands as the
 terminal loop (`/names`, `/name add|remove`, `/mute`, `/unmute`, `/interrupt`,
 `/image`, `/help`, and `exit` when there is no terminal). `/talk`, `/listen`,
 `/conversation`, and `/voice-file` need a real keyboard prompt and are explained
-rather than run. The two command paths (the loop in `main.py` and
-`window_commands.py`) are separate code; keep them in step.
+rather than run. The commands both offer (`/help`, `/interrupt`, `/mute`, `/unmute`,
+`/names`, `/name`, `/folders`, `/folder`, `/image`, `/window`) are handled once, by
+`window_commands.run_shared_command`, which the terminal loop in `main.py` and the window
+both call; add a command both should have there. Quitting, the keyboard commands and the
+Console tab stay with their own caller.
 
 The window: Freya opens it at startup (`FREYA_WINDOW=0` disables that; `/window`
 reopens it). The gateway binds `127.0.0.1` only, port 8770 or a free one. A request is
@@ -495,7 +500,8 @@ arrives one chunk per token, so the bus keeps the chunks of one reply as a singl
 entry; the live events are delivered one by one as they came. The hello's console lines are taken
 in the same step as the subscription (`subscribe_with_history(..., snapshot=...)`), and
 the tee records and announces a line under the bus's lock, so a line arrives once. Memory commands (`/memories`, `/forget`, `/memory-help`
-and the rest) typed in the window are passed to `FreyaAssistant.memory_command`.
+and the rest) typed in the window are passed to `FreyaAssistant.memory_command`
+(`core/memory_commands.py`).
 
 Shutdown order matters, because a turn may be running on the window's worker thread or
 the listener thread: `TurnGate.close()` (no new turn may begin), then

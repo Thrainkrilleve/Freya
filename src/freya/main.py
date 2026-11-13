@@ -31,7 +31,6 @@ from freya.tools.security_tools import (
 )
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
-from freya.hands_free import handle_listening_command
 from freya.hands_free import load_speech_recognition
 from freya.hands_free import start_background_listening
 from freya.settings import Settings
@@ -45,7 +44,9 @@ from freya.media.setup import build_media_service
 from freya.window import build_status
 from freya.unreal_client import UnrealClient, configured_client
 from freya.console_tee import ConsoleOutput
+from freya.window_commands import HELP_COMMAND, TERMINAL_COMMANDS
 from freya.window_commands import CommandContext
+from freya.window_commands import run_shared_command
 from freya.window_commands import run_window_command
 from freya.speech.setup import build_voice_studio
 
@@ -91,7 +92,7 @@ COMMANDS = (
 
     IMAGE_COMMAND,
 
-) + LISTENING_COMMANDS + FOLDER_COMMANDS + (WINDOW_COMMAND,)
+) + LISTENING_COMMANDS + FOLDER_COMMANDS + (WINDOW_COMMAND, HELP_COMMAND) + TERMINAL_COMMANDS
 
 
 
@@ -332,18 +333,6 @@ def get_voice_file_path(command):
 
 
     return path.strip('"')
-
-
-
-
-
-def get_image_prompt(command):
-
-    return command[
-
-        len(IMAGE_COMMAND):
-
-    ].strip()
 
 
 
@@ -1769,6 +1758,25 @@ def main(window_only=False):
 
 
 
+    terminal_commands = CommandContext(
+        bus=EVENTS,
+        voice=voice,
+        listener=listener,
+        settings=settings,
+        window=window,
+        normalize=normalize_command,
+        run_image=lambda prompt: run_image_generation(
+            image_generator,
+            gpu_manager,
+            prompt,
+        ),
+        publish_status=publish_status,
+        folder_command=file_access.command,
+        self_check=lambda: run_self_check_command(control_plane.broker),
+    )
+
+
+
     try:
 
         while True:
@@ -1805,86 +1813,9 @@ def main(window_only=False):
 
 
 
-            if user_input.lower() == INTERRUPT_COMMAND:
-
-                voice.interrupt()
-
-                print(
-
-                    "\nFreya: Speech playback interrupted.\n"
-
-                )
-
-                continue
-
-
-
-            if handle_listening_command(
-
-                user_input,
-
-                listener,
-
-                settings,
-
-            ):
-
-                publish_status()
-
-                continue
-
-
-            if file_access.command(user_input):
-                continue
-            if user_input.lower() in SELF_CHECK_COMMANDS:
-                print(f"\n{run_self_check_command(control_plane.broker)}\n")
-                continue
-            if user_input.lower() == WINDOW_COMMAND:
-
-                print(f"\n{window.open()}\n")
-
-                continue
-
-
-
-            if user_input.lower() == IMAGE_COMMAND:
-
-                print(
-
-                    "\nUsage: /image <description>\n"
-
-                )
-
-                continue
-
-
-
-            if user_input.lower().startswith(
-
-                IMAGE_COMMAND + " "
-
-            ):
-
-                prompt = get_image_prompt(
-
-                    user_input
-
-                )
-
-
-
-                run_image_generation(
-
-                    image_generator,
-
-                    gpu_manager,
-
-                    prompt,
-
-                )
-
-
-
+            # The commands the window offers too run through the same
+            # code as there (window_commands.run_shared_command).
+            if run_shared_command(user_input, terminal_commands) is not None:
                 continue
 
 

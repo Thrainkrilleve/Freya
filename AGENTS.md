@@ -49,8 +49,8 @@ You do not run those hooks, so you must follow these rules yourself:
   will run them.
 - Keep the existing code style and comment density, LF line endings, and absolute
   imports (`from freya.core.llm import ...`).
-- Keep the two command paths in step (`main.py` loop and `window_commands.py`) until
-  they are merged.
+- A command both the terminal and the window offer goes in
+  `window_commands.run_shared_command`, which both call.
 - Add tests with every behaviour change. A refactor must not change behaviour and must
   leave the existing tests passing unmodified, except for import paths.
 - Small PRs: one task per PR, named in the PR title (for example `[C-2] ...`).

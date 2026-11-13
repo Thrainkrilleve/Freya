@@ -88,32 +88,21 @@ class _Both(io.TextIOBase):
             stream.flush()
 
 
-def _dispatch(line: str, context: CommandContext) -> bool:
+def run_shared_command(line: str, context: CommandContext) -> Optional[bool]:
     """
-    Run one command. Returns True when what it printed should also be
-    shown in the chat.
+    Run one of the commands the terminal and the window both offer.
+    Returns None when the line is not one of them; otherwise whether
+    what it printed should also be shown in the window's chat.
+
+    The terminal loop in main.py and the window both call this, so the
+    two stay in step. What only one of them can do (keyboard commands,
+    quitting, the Console tab) stays with its caller.
     """
     lowered = line.lower()
     command = lowered.split()[0] if lowered.split() else ""
 
-    if lowered in QUIT_COMMANDS:
-        if context.request_quit is None:
-            print(
-                "Freya: I am running in a terminal. Type exit there "
-                "to quit."
-            )
-        else:
-            print("Freya: Closing down.")
-            context.request_quit()
-
-        return True
-
     if command == HELP_COMMAND:
         print(f"Freya: {HELP_TEXT}")
-        return True
-
-    if command in TERMINAL_COMMANDS:
-        print("Freya: The Console tab shows what my terminal shows.")
         return True
 
     if command == "/interrupt":
@@ -160,6 +149,38 @@ def _dispatch(line: str, context: CommandContext) -> bool:
     if command == "/window":
         print(context.window.open())
         return True
+
+    return None
+
+
+def _dispatch(line: str, context: CommandContext) -> bool:
+    """
+    Run one command. Returns True when what it printed should also be
+    shown in the chat.
+    """
+    lowered = line.lower()
+    command = lowered.split()[0] if lowered.split() else ""
+
+    if lowered in QUIT_COMMANDS:
+        if context.request_quit is None:
+            print(
+                "Freya: I am running in a terminal. Type exit there "
+                "to quit."
+            )
+        else:
+            print("Freya: Closing down.")
+            context.request_quit()
+
+        return True
+
+    if command in TERMINAL_COMMANDS:
+        print("Freya: The Console tab shows what my terminal shows.")
+        return True
+
+    shared = run_shared_command(line, context)
+
+    if shared is not None:
+        return shared
 
     if command in KEYBOARD_ONLY:
         print(
