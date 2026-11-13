@@ -149,6 +149,40 @@ class ConversationStore:
             """
         )
         self.connection.commit()
+        self._forget_deleted_words()
+
+    def _forget_deleted_words(self) -> None:
+        """
+        The search index keeps its own copy of every word. By default
+        it only marks deleted messages as gone and keeps their words
+        until a later merge, which may never happen, so they stay in
+        the file. Its secure-delete option removes them on delete.
+
+        The option is recorded in the index itself. When it is not yet
+        on, the index is rebuilt from the stored messages once, which
+        clears words left by deletions made before.
+        """
+        on = self.connection.execute(
+            "SELECT v FROM conversation_search_config WHERE k = 'secure-delete'"
+        ).fetchone()
+
+        if on is not None and on[0]:
+            return
+
+        try:
+            self.connection.execute(
+                "INSERT INTO conversation_search(conversation_search, rank) "
+                "VALUES('secure-delete', 1)"
+            )
+        except sqlite3.OperationalError:
+            # SQLite before 3.42 has no such option. Deleting still
+            # removes the messages; their words may stay in the index.
+            return
+
+        self.connection.execute(
+            "INSERT INTO conversation_search(conversation_search) VALUES('rebuild')"
+        )
+        self.connection.commit()
 
     # -- writing ---------------------------------------------------------------
 

@@ -114,6 +114,17 @@ SECURITY_HEADERS = {
 }
 
 
+def _same_secret(given: str, known: str) -> bool:
+    """
+    Compare a secret from a request with one Freya issued, in constant
+    time. Text from a request may hold any character, which
+    compare_digest refuses for strings, so both are compared as UTF-8.
+    """
+    return secrets.compare_digest(
+        given.encode("utf-8", "surrogateescape"), known.encode("utf-8")
+    )
+
+
 def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=None):
     if isinstance(body, str):
         body = body.encode("utf-8")
@@ -305,7 +316,7 @@ class Gateway:
 
         with self._lock:
             return any(
-                secrets.compare_digest(morsel.value, session)
+                _same_secret(morsel.value, session)
                 for session in self._sessions
             )
 
@@ -364,7 +375,7 @@ class Gateway:
 
         with self._lock:
             valid = any(
-                secrets.compare_digest(key, known)
+                _same_secret(key, known)
                 for known in self._keys
             )
 

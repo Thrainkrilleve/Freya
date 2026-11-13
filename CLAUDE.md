@@ -143,7 +143,8 @@ first and give the model the results for that one reply, or tell it nothing was
 found. The
 window's Memory tab and the `/find` and `/history` commands search memories and
 conversations, edit and delete memories, and delete an exchange or a conversation.
-Deleting conversation text is permanent (`secure_delete` is on), removes both halves
+Deleting conversation text is permanent (`secure_delete` is on, and the FTS5 index's own
+`secure-delete` option, without which the index keeps deleted words), removes both halves
 of an exchange, clears that conversation's summary so it is rewritten from what is
 left, and drops the words from the live conversation. A deleted *memory* is still
 archived in `memory_history`, as before. Memory tab answers go only to the window
