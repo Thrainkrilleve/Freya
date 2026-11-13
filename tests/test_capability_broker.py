@@ -404,6 +404,7 @@ def test_local_control_plane_runs_system_tools(tmp_path, fake_ollama):
         "llm.chat",
         "llm.chat_stream",
         "llm.embed",
+        "security.self_assessment",
     }
     assert all(
         r["subject"] == LOCAL_OWNER.actor for r in plane.policy.list_rules()
@@ -415,7 +416,7 @@ def test_local_control_plane_runs_system_tools(tmp_path, fake_ollama):
 
     assert reopened.audit_startup.verification.ok is True
     assert reopened.audit_startup.verification.events_checked == 2
-    assert reopened.policy.state() == (2, 1)
+    assert reopened.policy.state() == (3, 1)
     assert checkpoints.exists()
     reopened.close()
 

@@ -93,6 +93,16 @@ from freya.tools.system_tools import (
     create_system_tools_provider,
     register_system_tools,
 )
+from freya.tools.security_tools import (
+    SECURITY_PROVIDER,
+    SELF_ASSESSMENT,
+    SELF_ASSESSMENT_POLICY_SEED,
+    SelfAssessmentContext,
+    create_security_provider,
+    locate_source_roots,
+    run_self_assessment,
+    security_self_assessment_capability,
+)
 
 
 @dataclass
@@ -586,6 +596,36 @@ def build_local_control_plane(
         policy,
         audit,
         LOCAL_OWNER,
+    )
+
+    # Freya's read-only security self-assessment: a capability that
+    # checks her own hardening (audit chain, policy posture, data
+    # protection, gateway bindings, avatar/Core isolation). It is
+    # owner-invoked, never offered to the model, and audited like any
+    # other capability.
+    providers.register(create_security_provider())
+    providers.start(SECURITY_PROVIDER)
+    providers.check_health(SECURITY_PROVIDER)
+    package_root, repo_root = locate_source_roots()
+    self_assessment_context = SelfAssessmentContext(
+        audit=audit,
+        policy=policy,
+        capabilities=capabilities,
+        owner_actor=LOCAL_OWNER.actor,
+        package_root=package_root,
+        repo_root=repo_root,
+        broker=broker,
+    )
+    capabilities.register(
+        security_self_assessment_capability(
+            lambda: run_self_assessment(self_assessment_context)
+        )
+    )
+    seed_alpha_policy(
+        policy,
+        SELF_ASSESSMENT_POLICY_SEED,
+        LOCAL_OWNER.actor,
+        [SELF_ASSESSMENT],
     )
 
     # Everything in this process that needs model work asks for it

@@ -25,6 +25,10 @@ AUDIT_CHECKPOINT_PATH = os.environ.get(
     "FREYA_AUDIT_CHECKPOINT_PATH"
 ) or None
 
+# Whether Freya runs her read-only security self-check as she starts and
+# prints one line. Set FREYA_SELF_CHECK_AT_START=0 to skip it.
+SELF_CHECK_AT_START = os.environ.get("FREYA_SELF_CHECK_AT_START", "1") != "0"
+
 # Whether Freya opens her window when she starts. Set FREYA_WINDOW=0 to
 # start with the console only; /window opens it later.
 OPEN_WINDOW = os.environ.get("FREYA_WINDOW", "1") != "0"
