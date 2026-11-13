@@ -165,6 +165,83 @@ def test_deleting_conversations(store):
     assert store.recent() == [] and store.search("third") == []
 
 
+SECRET = "zanzibarquux"
+
+
+def file_holds(path, word=SECRET):
+    return word.encode() in path.read_bytes()
+
+
+def kept_with_a_secret(path):
+    connection = sqlite3.connect(path)
+    store = ConversationStore(connection)
+    talk(store, (f"my word is {SECRET}", f"noted, {SECRET}"), ("other words", "fine"))
+    return connection, store
+
+
+@pytest.mark.parametrize(
+    "forget",
+    [
+        lambda store: store.delete_exchange(
+            store.search(SECRET)[0]["match"]
+        ),
+        lambda store: store.delete_conversation(store.current),
+        lambda store: store.delete_all(),
+    ],
+    ids=["exchange", "conversation", "everything"],
+)
+def test_deleted_words_leave_the_database_file(tmp_path, forget):
+    # The search index keeps its own copy of every word; deleting a
+    # message must remove the words from that copy too.
+    path = tmp_path / "freya_memory.db"
+    connection, store = kept_with_a_secret(path)
+
+    forget(store)
+    connection.close()
+
+    assert not file_holds(path)
+
+
+def test_words_left_by_earlier_deletions_are_cleared_once(tmp_path):
+    path = tmp_path / "freya_memory.db"
+    connection, store = kept_with_a_secret(path)
+
+    # As the store used to: the FTS5 index left deleted words behind.
+    # Current deletion also merges the index, which already drops them,
+    # so an older deletion is replayed here without that merge.
+    connection.execute(
+        "INSERT INTO conversation_search(conversation_search, rank) "
+        "VALUES('secure-delete', 0)"
+    )
+    conversation_id = store.current
+    turn_ids = [
+        row[0]
+        for row in connection.execute(
+            "SELECT id FROM conversation_turn WHERE conversation_id = ?",
+            (conversation_id,),
+        )
+    ]
+    for turn_id in turn_ids:
+        connection.execute(
+            "DELETE FROM conversation_search WHERE rowid = ?", (turn_id,)
+        )
+        connection.execute(
+            "DELETE FROM conversation_turn WHERE id = ?", (turn_id,)
+        )
+    connection.execute(
+        "DELETE FROM conversation WHERE id = ?", (conversation_id,)
+    )
+    connection.commit()
+    connection.close()
+    assert file_holds(path)
+
+    connection = sqlite3.connect(path)
+    store = ConversationStore(connection)
+    connection.close()
+
+    assert not file_holds(path)
+
+
 def test_only_earlier_conversations_still_need_summarising(store):
     talk(store, ("one", "two"))
     first = store.current

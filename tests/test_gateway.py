@@ -165,6 +165,19 @@ def test_window_key_works_exactly_once(gateway):
     assert (wrong.status, missing.status) == (403, 403)
 
 
+def test_keys_and_cookies_that_are_not_plain_text_are_refused(gateway):
+    # A key or cookie outside ASCII must be refused like any wrong
+    # one, not fail the comparison and the request with it.
+    gateway.new_window_url()
+    sign_in(gateway)
+
+    key, _ = get(gateway, "/open?key=%C3%A9")
+    # A quoted cookie value may spell a character as an octal escape.
+    cookie, _ = get(gateway, "/", cookie=f'{SESSION_COOKIE}="\\351"')
+
+    assert (key.status, cookie.status) == (403, 403)
+
+
 def test_signed_in_window_gets_the_page_and_its_files(gateway):
     cookie = sign_in(gateway)
 
