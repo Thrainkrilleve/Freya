@@ -12,9 +12,13 @@ DOCS = Path(__file__).resolve().parents[1] / "docs"
 REGISTER = DOCS / "labels.md"
 
 # A label is defined where it is introduced, not where it is cited.
+# A bold bullet (`- **NEW-DB — ...`) is an introduction. So is a bold
+# label closed and then stopped (`**NEW-EA**.`).
 DEFINITION = re.compile(
-    r"(?m)^(?:#{1,6}\s+|\|\s*)?\*{0,2}(NEW-[A-Z]+(?:\d+)?)\b\*{0,2}"
-    r"(?:\s*[—–-]|\s*\(proposed|\s*\.\*\*|\*\*\s*[—–-])"
+    r"(?m)^(?:[-*+]\s+)?"
+    r"(?:#{1,6}\s+|\|\s*)?"
+    r"\*{0,2}(NEW-[A-Z]+(?:\d+)?)\b\*{0,2}"
+    r"(?:\s*[—–-]|\s*\(proposed|\s*\.\*\*|\*\*\s*[—–-]|\.)"
 )
 RANGE = re.compile(r"NEW-([A-Z]+)(?:\d+)?(?:\s+to\s+NEW-([A-Z]+))?")
 
@@ -89,6 +93,20 @@ def test_each_design_document_defines_only_the_labels_it_was_given():
         allowed = given.get(key, set())
         stray = sorted(defined - allowed)
         assert not stray, f"{key} defines {stray}, which docs/labels.md does not give it"
+
+
+def test_bold_bullet_introductions_count_as_definitions():
+    samples = {
+        "- **NEW-DB — Worker or peer.**\n": "NEW-DB",
+        "**NEW-EA**.\n": "NEW-EA",
+        "### NEW-CV — Tiers are roles\n": "NEW-CV",
+        "**NEW-AC (proposed, MUST).**\n": "NEW-AC",
+    }
+    for sample, label in samples.items():
+        found = {match.group(1) for match in DEFINITION.finditer(sample)}
+        assert found == {label}, (sample, found)
+    reference = "See NEW-DB in the worker-nodes proposal.\n"
+    assert DEFINITION.search(reference) is None
 
 
 def test_the_register_names_the_next_free_range():

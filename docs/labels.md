@@ -22,13 +22,15 @@ at any defined label.
 | NEW-BM to NEW-BV | `design/freya-to-freya-cooperation.md` | 2026-10-09, relabelled 2026-10-21 | Proposal, nothing built |
 | NEW-BW to NEW-CG | `design/skill-learning.md` | 2026-10-22 | Proposal, not adopted; supersedes the mechanism of `learning-loop.md`. Built: the NEW-CB gate for hint and model changes (build step 1) |
 | NEW-LC11 | `design/attributed-chat-responses.md` | 2026-10-09 | Built; renumber at adoption |
+| NEW-CI to NEW-CU | `design/local-decider.md` | 2026-11-05 | Proposal, not adopted. The contract, today's rules and the `decide` capability exist; the control plane does not register `decide` |
 | NEW-CV to NEW-DA | `design/model-tiers.md` | 2026-11-05 | Proposal, nothing built; extends `skill-learning.md` |
+| NEW-DB to NEW-DM | `design/worker-nodes.md` | 2026-11-10 | Proposal, not adopted. Finding a machine and recording the owner's decision are built in `freya.federation`; nothing is sent and Core does not import it |
+| NEW-EA | `design/security-self-assessment.md` | 2026-11-06 | Proposal, not adopted. The read-only `security.self_assessment` checks are built |
 
-**Next free range starts at NEW-DB.**
+**Next free range starts at NEW-EB.**
 
-NEW-CH to NEW-CU: NEW-CI to NEW-CU are used by `design/local-decider.md` in open PR
-#47, which does not register them yet; NEW-CH is unused. Register them with that
-document when it lands on this line, and do not give them to anything else.
+NEW-CH is unused. It was left free beside `design/local-decider.md` (NEW-CI to
+NEW-CU). Do not give it to a new proposal.
 
 Relabelled on 2026-10-21, when the register was made: `openrig-lessons.md` had taken
 NEW-AM to NEW-AX a week after `code-sandbox.md` took NEW-AM to NEW-AR; and
