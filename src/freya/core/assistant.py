@@ -9,7 +9,6 @@ from freya.core.conversation_memory import (
     ConversationMemory,
 )
 from freya.core.llm import (
-    chat,
     chat_stream,
     classify_legacy_memory,
     compare_memories,
@@ -63,45 +62,6 @@ class FreyaAssistant(ConversationMemory):
         ]
 
         self._start_conversations()
-
-    def respond(self, user_input):
-        command_response = (
-            self._handle_memory_command(
-                user_input
-            )
-        )
-
-        if command_response is not None:
-            return command_response
-
-        messages_for_model = self._prepare_context(user_input)
-
-        reply = chat(messages_for_model, options=self.context.options())
-
-        self.messages.append(
-            {
-                "role": "user",
-                "content": user_input,
-            }
-        )
-
-        self.messages.append(
-            {
-                "role": "assistant",
-                "content": reply,
-            }
-        )
-
-        self._keep_exchange(
-            user_input,
-            reply,
-        )
-
-        self._process_automatic_memory(
-            user_input
-        )
-
-        return reply
 
     def respond_stream(self, user_input):
         # The inputs a delegation could send are fixed here, before

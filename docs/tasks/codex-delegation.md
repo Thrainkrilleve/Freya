@@ -68,7 +68,7 @@ Acceptance:
 
 ### C-3 · Delete the unused `FreyaAssistant.respond()`
 
-Status: Ready
+Status: In review — PR #36
 
 `FreyaAssistant.respond()` (`src/freya/core/assistant.py`, from line 34) repeats about
 90 lines of `respond_stream()` and has no caller in `src/` or `tests/`.
