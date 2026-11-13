@@ -29,7 +29,12 @@ BACKUP_FOLDER_NAME = "FreyaBackups"
 
 # Copied with SQLite's own backup, which gives a consistent copy even
 # of a database that is in use.
-DATABASES = ("freya_memory.db", "freya_control.db", "freya_usage.db")
+DATABASES = (
+    "freya_memory.db",
+    "freya_control.db",
+    "freya_usage.db",
+    "freya_tasks.db",
+)
 
 # Small files copied as they are.
 FILES = (
