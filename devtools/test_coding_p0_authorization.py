@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import Mock
 from freya.core.capabilities import CapabilityBroker, CapabilityRegistry
-from freya.core.capabilities.capability import CapabilityDefinition, CapabilityStatus
+from freya.core.capabilities.capability import CapabilityDefinition, CapabilityStatus, declare
 from freya.core.policy.engine import PolicyDecision
 
 
@@ -17,6 +17,7 @@ class BrokerP0AuthorizationTests(unittest.TestCase):
             category="development",
             handler=lambda: self.calls.append("executed"),
             status=CapabilityStatus.AVAILABLE,
+            declaration=declare(("none", "test fixture, no resource")),
         ))
         self.policy = Mock()
         self.audit = Mock()

@@ -8,7 +8,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Callable
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.capabilities.execution_context import current_broker_context
 from freya.core.providers import ProviderDefinition
 
@@ -75,5 +75,12 @@ def register_coding_proposal(control_plane, *, repo: Path, journal_dir: Path,
             handler=handler,
             category="development",
             metadata={"alpha": True, "model_tool": False},
+            declaration=declare(
+                (
+                    "filesystem",
+                    "selected source files, read, and proposal files written outside the repository",
+                ),
+                effect="consequential",
+            ),
         )
     )
