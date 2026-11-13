@@ -99,6 +99,60 @@ def _assert_complete(capability):
     assert described["accesses"]
 
 
+def test_voice_and_task_capabilities_are_declared_at_startup(tmp_path, monkeypatch, fake_ollama):
+    """The paths main actually registers: the voice gate, and tasks when enabled."""
+    from freya.tasks.lifecycle import TASK_CAPABILITIES
+    from freya.voice.gate import (
+        VOICE_CAPABILITIES,
+        VOICE_SPEAK,
+        VOICE_STUDIO,
+        VOICE_TURN,
+        VOICE_WAKE,
+        install_voice_gate,
+    )
+
+    class Voice:
+        def speak(self, text):
+            return None
+
+    monkeypatch.delenv("FREYA_TASKS", raising=False)
+    plain = build_local_control_plane(tmp_path / "off.db")
+
+    try:
+        install_voice_gate(plain, Voice(), lambda message: {"state": {}})
+        found = {item.name: item for item in plain.capabilities.list_capabilities()}
+
+        assert set(VOICE_CAPABILITIES) <= set(found)
+        assert "task.create" not in found
+        assert "code.run" not in found
+
+        for name in VOICE_CAPABILITIES:
+            _assert_complete(found[name])
+
+        assert not found[VOICE_WAKE].declaration.consequential
+        assert not found[VOICE_TURN].declaration.consequential
+        assert found[VOICE_SPEAK].declaration.consequential
+        assert found[VOICE_STUDIO].declaration.consequential
+    finally:
+        plain.close()
+
+    monkeypatch.setenv("FREYA_TASKS", "1")
+    enabled = build_local_control_plane(tmp_path / "on.db")
+
+    try:
+        found = {item.name: item for item in enabled.capabilities.list_capabilities()}
+
+        assert set(TASK_CAPABILITIES) <= set(found)
+        assert "code.run" not in found
+        assert "decide" not in found
+
+        for name in TASK_CAPABILITIES:
+            _assert_complete(found[name])
+            assert found[name].declaration.consequential
+    finally:
+        enabled.close()
+
+
 def test_the_control_plane_registry_is_fully_declared(tmp_path, fake_ollama):
     plane = build_local_control_plane(tmp_path / "control.db")
 

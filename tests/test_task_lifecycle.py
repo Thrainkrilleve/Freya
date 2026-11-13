@@ -25,7 +25,13 @@ def _grant(plane):
 def _open(tmp_path, fake_ollama):
     plane = build_local_control_plane(tmp_path / "control.db")
     life = TaskLifecycle(tmp_path / "freya_tasks.db")
-    register_task_lifecycle(plane, life)
+    # FREYA_TASKS=1 already registered a journal beside the control
+    # database. These tests use their own file, so the handlers move.
+    register_task_lifecycle(
+        plane,
+        life,
+        replace=plane.capabilities.get("task.create") is not None,
+    )
     return plane, life
 
 

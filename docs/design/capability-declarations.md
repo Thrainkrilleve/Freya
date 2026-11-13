@@ -27,3 +27,11 @@ capability. A wildcard allow does not authorize it. A deny rule still wins.
 
 `code.run` and `decide` stay unregistered on the control plane, and they are
 in no policy seed. Filling in their declarations does not grant them.
+
+Voice is declared as well. `voice.wake` and `voice.turn` only accept what was
+already heard, so they are read-only. `voice.speak` and `voice.studio` change
+the speaker or the saved voices, so they are consequential. The alpha voice
+seed names each of the four for the local owner, which is the exact rule a
+consequential capability requires. The eight task transitions all write
+`freya_tasks.db`, so they are consequential, and they have no seed. They are
+registered only when `FREYA_TASKS=1`.

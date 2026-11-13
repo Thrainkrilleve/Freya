@@ -10,6 +10,7 @@ from freya.core.capabilities import (
     CapabilityBroker,
     CapabilityDefinition,
     CapabilityRegistry,
+    declare,
 )
 from freya.core.capabilities.broker import LOCAL_OWNER
 from freya.core.persistence import ControlStore
@@ -64,6 +65,7 @@ def _plane(tmp_path):
             provider="system-tools-local",
             handler=info,
             metadata={MODEL_TOOL: True},
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
     registry.register(
@@ -73,6 +75,10 @@ def _plane(tmp_path):
             provider="system-tools-local",
             handler=code_run,
             destructive=True,
+            declaration=declare(
+                ("process", "test fixture, no real command"),
+                effect="consequential",
+            ),
         )
     )
 
