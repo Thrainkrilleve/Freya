@@ -597,6 +597,30 @@ made-up material goes in, never anything from `data/`; output is untrusted text;
 audit log; `code.run` is in no policy seed and is not a model tool. Describe the
 container profile as holding mistakes, not a determined attack.
 
+Local decider: `freya.decider` is the contract for typed decisions (choice, score,
+yes/no, each with a probability per answer; `contract.py`), the registered decision
+points with their fallbacks (`points.py`), a decider made of today's rules
+(`rules.py`), and the capability `decide` on provider `decider-local`
+(`service.py`). The design, `docs/design/local-decider.md` (NEW-CI to NEW-CU), is a
+proposal that is not adopted; a local model decider comes later. Keep these rules: a
+decision chooses between paths code already allows and never grants, approves,
+loosens a setting or stands for consent, until the owner grants authority at one
+point after a recorded comparison (NEW-CU); the package must not import policy,
+delegation, settings or the gateway (a test checks); decision points are defined in
+code, never from model or user text; below a point's threshold the old path decides;
+the text decided about never goes in an error message, because the message reaches
+the audit log; `decide` is not registered by `build_local_control_plane`, is in no
+policy seed and is not a model tool. `python -m freya.evaluation.decisions` measures
+a decider on the synthetic labelled sets in `evaluation/decision_sets.py` (labels
+not yet checked by the owner; the held-out split is fixed by hash). Laya's English
+checkpoint is a second decider (`laya_decider.py`), run as a helper in its own
+environment under `data/decider_envs/` with weights in `data/decider_models/`,
+pinned to one commit and loaded with the hub offline; `python -m
+freya.decider.install laya` sets it up (owner action, about 3 GB). Never install it
+into `.venv`; its worker must not import `freya` and returns only numbers or an
+error type, never the text. Text mostly outside the Latin alphabet goes to the
+fallback, because the English checkpoint is confidently wrong on it.
+
 `python -m freya.evaluation.delegation` measures a model on 91 synthetic delegated
 tasks in eight kinds (`evaluation/delegation_tasks.py`), each with a deterministic
 check. Twenty-eight of them (`STRETCH_TASKS`) are the hardest, added when the best

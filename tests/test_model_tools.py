@@ -6,6 +6,7 @@ from freya.control_plane import build_local_control_plane
 from freya.core.assistant import MAX_TOOL_CALLS, MAX_TOOL_ROUNDS, FreyaAssistant
 from freya.core.capabilities import CapabilityDefinition, CapabilityStatus
 from freya.memory import memory_manager
+from freya.providers.image.comfyui import COMFYUI_PROVIDER
 from freya.tools.model_tools import (
     MODEL_TOOL,
     TOOL_PARAMETERS,
@@ -58,6 +59,13 @@ def audit_rows(plane, capability):
 
 def stream_calls(fake_ollama):
     return [call for call in fake_ollama.calls if call[0] == "chat" and call[3]]
+
+
+def comfyui_can_start(plane):
+    # Image generation is offered only while ComfyUI is running or can
+    # be started; whether it can depends on Comfy Desktop being
+    # installed on this machine, which the tests must not rely on.
+    plane.providers.get(COMFYUI_PROVIDER).metadata["can_start"] = True
 
 
 def test_only_marked_capabilities_are_offered(plane):
@@ -245,6 +253,7 @@ def test_validate_arguments_directly():
 
 
 def test_image_generation_is_offered_as_a_tool(plane):
+    comfyui_can_start(plane)
     prompts = []
     plane.register_image_generation(
         lambda prompt: prompts.append(prompt) or {"status": "generated"}
@@ -272,6 +281,7 @@ def test_image_generation_is_offered_as_a_tool(plane):
 
 
 def test_image_tool_failure_is_reported_to_the_model(plane):
+    comfyui_can_start(plane)
     def broken(prompt):
         raise RuntimeError("The image could not be generated.")
 
@@ -287,6 +297,7 @@ def test_image_tool_failure_is_reported_to_the_model(plane):
 def test_assistant_generates_an_image_when_the_model_asks(
     assistant, plane, fake_ollama
 ):
+    comfyui_can_start(plane)
     prompts = []
     plane.register_image_generation(
         lambda prompt: prompts.append(prompt) or {"status": "generated"}
