@@ -1,0 +1,20 @@
+name: Discord coordinator tests
+on:
+  push:
+    branches: [feature/discord-dual-ai-coordinator]
+  pull_request:
+    paths:
+      - 'tools/discord_coordinator/**'
+      - 'tests/test_discord_coordinator.py'
+      - '.github/workflows/discord-coordinator.yml'
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: python -m pip install pytest
+      - run: python -m compileall -q tools/discord_coordinator
+      - run: python -m pytest -q tests/test_discord_coordinator.py
