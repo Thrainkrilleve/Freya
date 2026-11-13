@@ -79,7 +79,8 @@ Rules for the spec:
   store lives: the six in `BULK_STORES` follow the owner's setting in
   `data/storage_locations.json`, everything else stays in `data/`. Define a bulk
   store's folder with `store_path(name)`, never `DATA_DIR / name`. It imports
-  nothing from Freya. `src/freya/storage/move.py` copies the bulk stores to another
+  nothing from Freya but `freya.paths`, which itself imports nothing from Freya, so
+  the speech workers and the overlay may still import neither. `src/freya/storage/move.py` copies the bulk stores to another
   drive, checks every file, then switches over; it deletes nothing.
 - `src/freya/media/` — the media library, Jellyfin playback and transcripts
   (`docs/design/media-tools.md`). `src/freya/kernel/context/authority.py` — the
@@ -664,8 +665,9 @@ away.
 `tests/` covers the registries, tool modules, policy, audit, broker, model runtime,
 name matching, the listener, and the listening commands, using a fake Ollama client
 (`tests/conftest.py`) and scripted microphone blocks; `voice/stt_test.py` and
-`voice/tts_test.py` are manual scripts, not automated tests. `memory_manager.py` locates
-`data/` relative to the source tree, so it only works from an editable install.
+`voice/tts_test.py` are manual scripts, not automated tests. Without
+`FREYA_DATA_DIR`, `data/` is found relative to the source tree, so Freya only works from
+an editable install.
 
 ## Running locally (Windows)
 
@@ -673,6 +675,13 @@ name matching, the listener, and the listening commands, using a fake Ollama cli
 - `freya` is an installable package (src layout) and imports are absolute
   (e.g. `from freya.core.llm import ...`). It is installed in `.venv` in editable mode;
   run it from any directory with `freya` or `python -m freya`.
+- Freya's data is in the repository's `data/` unless `FREYA_DATA_DIR` names another
+  folder. `freya.paths.data_dir()` is the one place that decides; a module that keeps
+  data defines `DATA_DIR = data_dir()`, never a path of its own (`tests/test_paths.py`
+  checks every such module). Set it before Freya starts: each module reads it once
+  at import, so a value set afterwards (in a test, say) moves nothing. Other
+  overrides (`FREYA_BULK_DIR`, `FREYA_AUDIT_CHECKPOINT_PATH` and the rest) still
+  apply on top of it.
 - Requires Ollama on `127.0.0.1:11434` with `qwen3.8:27b` and `nomic-embed-text`.
   `FREYA_MODEL` names another installed model (`gpt-oss:20b` was the main model until
   2026-10-09; see `docs/design/model-benchmarks-2026-10-09.md`). `qwen3.8:27b` uses

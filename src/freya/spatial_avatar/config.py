@@ -7,9 +7,10 @@ from typing import Dict, List, Optional
 
 from freya.spatial_avatar.appearance import APPEARANCES, DEFAULT_APPEARANCE
 from freya.spatial_avatar.geometry import Display, GeometryError, Rect
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 SETTINGS_PATH = DATA_DIR / "avatar_settings.json"
 
 CONFIG_VERSION = 1

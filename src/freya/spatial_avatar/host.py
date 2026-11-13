@@ -13,9 +13,10 @@ from freya.child_environment import child_environment
 from freya.spatial_avatar import PROTOCOL_VERSION
 from freya.spatial_avatar import commands as c
 from freya.spatial_avatar.geometry import DisplayLayout, GeometryError
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 
 START_TIMEOUT_SECONDS = 20.0
 STOP_TIMEOUT_SECONDS = 3.0

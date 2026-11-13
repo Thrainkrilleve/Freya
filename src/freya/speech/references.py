@@ -12,9 +12,10 @@ import numpy as np
 import soundfile as sf
 
 from freya.speech.engines import SpeechError
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 REFERENCES_DIR = store_path("voice_references")
 
 RECORD_ID = re.compile(r"^[0-9a-f]{32}$")

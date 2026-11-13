@@ -17,9 +17,10 @@ from freya.spatial_avatar.sources import (
     CHARACTER_FILES,
     best_inside,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 WORK_DIR = store_path("avatar_work")
 SCRIPTS_DIR = Path(__file__).resolve().parent / "blender"
 

@@ -19,9 +19,10 @@ from freya.speech.engines import (
     SpeechEngine,
     SpeechError,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 WORKERS_DIR = Path(__file__).resolve().parent / "workers"
 
 # Each helper engine lives in its own Python environment here, because

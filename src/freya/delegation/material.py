@@ -8,9 +8,10 @@ from pathlib import Path
 from typing import Dict, FrozenSet, List, Optional, Tuple
 
 from freya.delegation.record import DEFAULT_BARS, validate_bars
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 CLOUD_SETTINGS_PATH = DATA_DIR / "cloud_settings.json"
 
 # The kinds of material a brief for a cloud model can be made from.

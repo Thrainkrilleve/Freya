@@ -12,9 +12,10 @@ from typing import Dict, List, Optional
 
 from freya.child_environment import child_environment
 from freya.storage.locations import store_path
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 
 SSD = "ssd"
 HDD = "hdd"

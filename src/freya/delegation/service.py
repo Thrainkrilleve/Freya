@@ -51,9 +51,10 @@ from freya.providers.model.claude_plan import (
 from freya.providers.model.ollama import installed_digests
 from freya.tools.model_tools import MODEL_TOOL, TOOL_PARAMETERS
 from freya.tools.system_tools import SYSTEM_TOOLS_PROVIDER
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 
 CLOUD_SETTINGS_PROVIDER = "cloud-settings-local"
 CLOUD_SETTINGS_CHANGE = "cloud.settings.change"

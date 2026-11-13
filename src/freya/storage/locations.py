@@ -4,15 +4,17 @@ source tree. The stores named in BULK_STORES can be kept somewhere
 else instead, such as a hard disk, by the owner's setting.
 
 This module uses only the standard library and imports nothing from
-Freya, so anything may import it.
+Freya but freya.paths, which is the same, so anything may import it.
 """
 import json
 import os
 from pathlib import Path
 from typing import Optional
 
+from freya.paths import data_dir
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+DATA_DIR = data_dir()
 LOCATIONS_NAME = "storage_locations.json"
 
 # Overrides the setting, for tests and one-off runs.

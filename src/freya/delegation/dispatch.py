@@ -19,9 +19,10 @@ from freya.delegation.screening import (
     ScreeningResult,
     screen_brief,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 SENT_BRIEFS_PATH = DATA_DIR / "sent_briefs.jsonl"
 
 # How long an authorization stays good. It is meant to be used at once.

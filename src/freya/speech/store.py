@@ -12,9 +12,10 @@ import numpy as np
 import soundfile as sf
 
 from freya.speech.engines import ROLES, SpeechError
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 PROFILES_PATH = DATA_DIR / "voice_profiles.json"
 CLIPS_DIR = store_path("voice_clips")
 

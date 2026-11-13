@@ -80,7 +80,7 @@ Acceptance:
 
 ### C-4 · One place that decides where `data/` is
 
-Status: Ready
+Status: In review — PR #38
 
 About ten modules each compute `data/` relative to the source tree, which is why Freya
 only works from an editable install. Examples: `settings.py`, `window.py`,

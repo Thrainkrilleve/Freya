@@ -10,11 +10,12 @@ from freya.core.providers import ProviderHealth
 from freya.gateway.server import DEFAULT_PORT, Gateway
 from freya.providers.image.comfyui import COMFYUI_PROVIDER
 from freya.providers.model.ollama import OLLAMA_PROVIDER
+from freya.paths import data_dir
 
 
 WINDOW_COMMAND = "/window"
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+DATA_DIR = data_dir()
 
 # The window gets a browser profile of its own, so it shares nothing
 # with the owner's everyday browsing.

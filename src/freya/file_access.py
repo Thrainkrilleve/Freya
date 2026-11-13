@@ -1,11 +1,11 @@
-from pathlib import Path
 from typing import Callable, Optional
 
 from freya.storage.locations import bulk_root
 from freya.tools.file_tools import FileReader, check_readable_folder
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+DATA_DIR = data_dir()
 
 FOLDERS_COMMAND = "/folders"
 FOLDER_COMMAND = "/folder"

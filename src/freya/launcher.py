@@ -1,10 +1,11 @@
 import subprocess
 import sys
 import traceback
-from pathlib import Path
+
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+DATA_DIR = data_dir()
 LOG_PATH = DATA_DIR / "freya.log"
 
 # Flags that already decide what happens to a child's console.

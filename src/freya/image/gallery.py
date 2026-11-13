@@ -8,8 +8,10 @@ from pathlib import Path
 from freya.storage.locations import store_path
 from typing import List, Optional
 
+from freya.paths import data_dir
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+DATA_DIR = data_dir()
 GALLERY_DIR = store_path("images")
 
 INDEX_NAME = "index.json"

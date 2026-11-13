@@ -16,9 +16,10 @@ from freya.spatial_avatar.vrm import (
     read_thumbnail,
     read_vrm,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 
 # VRM files are put here by the owner. Freya only ever reads them.
 MODELS_DIR = store_path("avatar_models")

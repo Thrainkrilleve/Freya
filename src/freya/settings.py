@@ -5,9 +5,10 @@ from pathlib import Path
 from typing import List
 
 from freya.voice.wake import normalize_name
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[2] / "data"
+DATA_DIR = data_dir()
 SETTINGS_PATH = DATA_DIR / "freya_settings.json"
 
 DEFAULT_WAKE_NAMES = ["freya"]

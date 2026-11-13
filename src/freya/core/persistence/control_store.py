@@ -4,10 +4,12 @@ import threading
 from contextlib import contextmanager
 from pathlib import Path
 
+from freya.paths import data_dir
+
 
 logger = logging.getLogger(__name__)
 
-DATA_DIR = Path(__file__).resolve().parents[4] / "data"
+DATA_DIR = data_dir()
 CONTROL_DATABASE_PATH = DATA_DIR / "freya_control.db"
 
 # Each entry is one schema version. Never edit an entry that has shipped;

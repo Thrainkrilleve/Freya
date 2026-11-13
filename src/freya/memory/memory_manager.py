@@ -1,7 +1,6 @@
 import json
 import math
 import sqlite3
-from pathlib import Path
 
 from freya.core.model_runtime import (
     ModelRuntimeUnavailable,
@@ -12,9 +11,10 @@ from freya.memory.deletion_ledger import (
     StorageQuarantined,
     is_protected,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 DATABASE_PATH = DATA_DIR / "freya_memory.db"
 
 DEFAULT_MEMORY_LIMIT = 3

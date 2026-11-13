@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
+from freya.paths import data_dir
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+DATA_DIR = data_dir()
 CORRECTIONS_PATH = DATA_DIR / "screening_corrections.json"
 
 # How a brief matched something private.

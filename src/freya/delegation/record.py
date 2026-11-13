@@ -5,9 +5,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+DATA_DIR = data_dir()
 MODEL_RECORD_PATH = DATA_DIR / "model_record.json"
 
 VALUE_LOW = "low"

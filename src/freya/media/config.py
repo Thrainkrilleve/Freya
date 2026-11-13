@@ -3,8 +3,10 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional, Tuple
 
+from freya.paths import data_dir
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+
+DATA_DIR = data_dir()
 MEDIA_DIR = DATA_DIR / "media"
 MEDIA_DATABASE_PATH = MEDIA_DIR / "freya_media.db"
 EXPORT_DIR = MEDIA_DIR / "exports"
