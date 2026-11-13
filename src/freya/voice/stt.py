@@ -1,4 +1,7 @@
 from pathlib import Path
+from functools import wraps
+import math
+import threading
 import tempfile
 import time
 
@@ -24,6 +27,16 @@ VAD_SILENCE_SECONDS = 1.25
 VAD_MAX_WAIT_SECONDS = 10.0
 VAD_MAX_RECORD_SECONDS = 60.0
 
+_RECOGNITION_LOCK = threading.RLock()
+
+
+def serialized_recognition(method):
+    @wraps(method)
+    def run(*args, **kwargs):
+        with _RECOGNITION_LOCK:
+            return method(*args, **kwargs)
+    return run
+
 
 class FreyaSTT:
     def __init__(self):
@@ -37,6 +50,7 @@ class FreyaSTT:
 
         print("Freya speech recognition ready.")
 
+    @serialized_recognition
     def transcribe(self, audio_file):
         audio_path = Path(audio_file)
 
@@ -65,6 +79,7 @@ class FreyaSTT:
 
         return transcript, info
 
+    @serialized_recognition
     def transcribe_audio(
         self,
         audio,
@@ -105,6 +120,19 @@ class FreyaSTT:
         finally:
             # Background audio is not kept once it has been read.
             temp_path.unlink(missing_ok=True)
+
+    @serialized_recognition
+    def transcribe_media_chunk(self, audio):
+        """Analyze at most thirty seconds of already decoded 16 kHz sound."""
+        if len(audio) > 16000 * 30:
+            raise ValueError("Media audio chunk is too long.")
+        segments, _ = self.model.transcribe(audio, beam_size=5, vad_filter=True)
+        result = []
+        for segment in segments:
+            start, end = float(segment.start), float(segment.end)
+            if math.isfinite(start) and math.isfinite(end) and 0 <= start <= end <= 30.1:
+                result.append((start, end, segment.text))
+        return result
 
     def record_push_to_talk(self):
         print()

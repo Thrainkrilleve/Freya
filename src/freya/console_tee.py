@@ -31,17 +31,22 @@ class ConsoleOutput:
         # spoken turn replaces the waiting "You: " prompt.
         line = line.rsplit("\r", 1)[-1].rstrip()
 
-        with self._lock:
-            self._lines.append(line)
-
         # Announcing must never print, or it would call itself.
         if getattr(self._announcing, "busy", False):
+            with self._lock:
+                self._lines.append(line)
             return
 
         self._announcing.busy = True
 
         try:
-            self._bus.publish("console", text=line)
+            # Remembered and announced in one step under the bus's
+            # lock, so a window joining in between finds the line in
+            # the history it is given or in its live events, not both.
+            with self._bus.locked():
+                with self._lock:
+                    self._lines.append(line)
+                self._bus.publish("console", text=line)
         finally:
             self._announcing.busy = False
 

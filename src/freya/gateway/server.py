@@ -16,6 +16,10 @@ from websockets.datastructures import Headers
 from websockets.http11 import Response
 from websockets.sync.server import serve
 
+from freya.gateway.prompts import OwnerPrompts
+from freya.gateway.speech_relay import SpeechRelay
+from freya.gateway.answer_media import media_document
+
 
 DEFAULT_PORT = 8770
 
@@ -35,6 +39,19 @@ MAX_UPLOAD_BYTES = 3 * 1024 * 1024
 # may wait to be sent to one window before it is given up on.
 STOP_TIMEOUT_SECONDS = 30.0
 MAX_WAITING_EVENTS = 5000
+# How long a piece of speech waits for room in a client's queue.
+PLAYBACK_SEND_SECONDS = 2.0
+
+# The version of the conversation between Freya and a GUI client. A
+# client says which it speaks; one Freya does not speak is refused.
+PROTOCOL_VERSION = 1
+# What a client may ask for when it introduces itself.
+CLIENT_FEATURES = ("speech.playback",)
+# How a program Freya started (not a web page) proves who it is: a key
+# Freya gave it when she started it, used once, or the session that key
+# was exchanged for. Never in an address.
+PAIR_SCHEME = "FreyaPair"
+SESSION_SCHEME = "FreyaSession"
 
 JAVASCRIPT = "text/javascript; charset=utf-8"
 
@@ -42,8 +59,11 @@ STATIC_FILES = {
     "/": ("index.html", "text/html; charset=utf-8"),
     "/app.js": ("app.js", "text/javascript; charset=utf-8"),
     "/app.css": ("app.css", "text/css; charset=utf-8"),
+    "/rich-chat.js": ("rich-chat.js", JAVASCRIPT),
     # The 3D preview of avatar models, and the libraries it uses.
     # Each file is listed: nothing else under static/ is served.
+    "/media.js": ("media.js", JAVASCRIPT),
+    "/cloud.js": ("cloud.js", JAVASCRIPT),
     "/avatar-view.js": ("avatar-view.js", JAVASCRIPT),
     "/vendor/three/three.module.js": ("vendor/three/three.module.js", JAVASCRIPT),
     "/vendor/three/three.core.js": ("vendor/three/three.core.js", JAVASCRIPT),
@@ -77,6 +97,18 @@ def _static(name: str) -> bytes:
     )
 
 
+def _same_secret(given, known) -> bool:
+    """
+    A constant-time comparison that accepts whatever text a client
+    sent: `secrets.compare_digest` refuses non-ASCII strings with an
+    error, which would turn a stray character in a key or cookie into
+    a failed request rather than a refused one.
+    """
+    return secrets.compare_digest(
+        str(given).encode("utf-8"), str(known).encode("utf-8")
+    )
+
+
 def content_security_policy() -> str:
     """
     The page may only load its own files and talk to this server.
@@ -101,7 +133,7 @@ def content_security_policy() -> str:
     return (
         f"default-src 'none'; script-src {script}; style-src 'self'; "
         "img-src 'self' blob:; media-src 'self'; "
-        "connect-src 'self' blob:; base-uri 'none'; "
+        "connect-src 'self' blob:; frame-src 'self' https://www.youtube-nocookie.com; base-uri 'none'; "
         "form-action 'none'; frame-ancestors 'none'"
     )
 
@@ -114,7 +146,7 @@ SECURITY_HEADERS = {
 }
 
 
-def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=None):
+def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=None, security_policy=None):
     if isinstance(body, str):
         body = body.encode("utf-8")
 
@@ -124,7 +156,8 @@ def _response(status, body=b"", content_type="text/plain; charset=utf-8", extra=
     headers["Connection"] = "close"
 
     for name, value in SECURITY_HEADERS.items():
-        headers[name] = value
+        # Only trusted endpoint code supplies a distinct document policy.
+        headers[name] = security_policy if name == "Content-Security-Policy" and security_policy is not None else value
 
     for name, value in (extra or {}).items():
         headers[name] = value
@@ -163,10 +196,21 @@ class Gateway:
         self._lock = threading.Lock()
         self._keys = set()
         self._sessions = set()
+        self._pairing_keys = set()
+        self._native_sessions = set()
+
+        # Hands Freya's speech to the one client that plays it.
+        self.speech = SpeechRelay()
+
+        # The windows (web pages) that are connected, and the questions
+        # put to the owner in them. A question is never put on the bus.
+        self._web_clients = []
+        self._prompts = OwnerPrompts(self._show_to_windows)
 
         self._work = queue.Queue()
         # Requests about the avatar have a queue of their own, so that
         # she can be moved or hidden while a long reply is under way.
+        self._media_work = queue.Queue(maxsize=100)
         self._avatar_work = queue.Queue()
         self._worker = None
         self._stopping = threading.Event()
@@ -190,13 +234,16 @@ class Gateway:
             self._handle_socket,
             sock=listener,
             process_request=self._process_request,
-            origins=self._origins(),
+            # Where a connection comes from is checked in
+            # _process_request, which knows a web page from a program.
+            origins=None,
             max_size=MAX_MESSAGE_BYTES,
         )
 
         for target, name in (
             (self._serve, "FreyaGateway"),
             (self._run_avatar_work, "FreyaGatewayAvatar"),
+            (self._run_media_work, "FreyaGatewayMedia"),
             (self._run_work, "FreyaGatewayWork"),
         ):
             thread = threading.Thread(target=target, name=name, daemon=True)
@@ -242,6 +289,11 @@ class Gateway:
         """
         self._stopping.set()
 
+        # A turn may be waiting for the owner to answer a question. It
+        # must not hold up shutdown: the question is closed, and that
+        # is a denial.
+        self._prompts.close()
+
         # Turns that had not started are cancelled.
         while True:
             try:
@@ -251,6 +303,12 @@ class Gateway:
 
         self._work.put(None)
         self._avatar_work.put(None)
+        while True:
+            try:
+                self._media_work.get_nowait()
+            except queue.Empty:
+                break
+        self._media_work.put_nowait(None)
 
         if self._server is not None:
             self._server.shutdown()
@@ -262,7 +320,10 @@ class Gateway:
 
         worker.join(timeout)
 
-        return not worker.is_alive()
+        media = next((t for t in self._threads if t.name == "FreyaGatewayMedia"), None)
+        if media is not None and media is not threading.current_thread():
+            media.join(max(0, timeout))
+        return not worker.is_alive() and (media is None or not media.is_alive())
 
     def _origins(self):
         return [
@@ -288,6 +349,46 @@ class Gateway:
 
         return f"http://{LOOPBACK}:{self.port}/open?key={key}"
 
+    def new_pairing_key(self) -> str:
+        """
+        A key for a GUI program Freya is about to start. It works once,
+        in the Authorization header of that program's connection.
+        """
+        key = secrets.token_urlsafe(32)
+
+        with self._lock:
+            self._pairing_keys.add(key)
+
+        return key
+
+    def _native_session(self, authorization: str):
+        """
+        The session for a program's Authorization header, or None. A
+        pairing key is used up and replaced by a session, which that
+        program may use to reconnect while Freya keeps running.
+        """
+        scheme, _, value = str(authorization).partition(" ")
+        value = value.strip()
+
+        if not value:
+            return None
+
+        with self._lock:
+            if scheme == PAIR_SCHEME:
+                for key in self._pairing_keys:
+                    if _same_secret(value, key):
+                        self._pairing_keys.discard(key)
+                        session = secrets.token_urlsafe(32)
+                        self._native_sessions.add(session)
+
+                        return session
+            elif scheme == SESSION_SCHEME:
+                for session in self._native_sessions:
+                    if _same_secret(value, session):
+                        return session
+
+        return None
+
     # -- HTTP --------------------------------------------------------
 
     def _has_session(self, request) -> bool:
@@ -305,7 +406,7 @@ class Gateway:
 
         with self._lock:
             return any(
-                secrets.compare_digest(morsel.value, session)
+                _same_secret(morsel.value, session)
                 for session in self._sessions
             )
 
@@ -318,6 +419,26 @@ class Gateway:
         if url.path == "/open":
             return self._open(url)
 
+        if url.path == "/ws":
+            authorization = request.headers.get("Authorization", "")
+
+            if authorization.split(" ", 1)[0] in (PAIR_SCHEME, SESSION_SCHEME):
+                # A program Freya started, proving it with the key she
+                # gave it. A web page cannot set this header on a
+                # WebSocket, so the Origin does not matter here.
+                session = self._native_session(authorization)
+
+                if session is None:
+                    return _response(403, "This program has not been paired with Freya.")
+
+                connection.freya_native_session = session
+
+                return None
+
+            # Otherwise it must be Freya's own page, from this server.
+            if request.headers.get("Origin") not in self._origins():
+                return _response(403, "Forbidden.")
+
         if not self._has_session(request):
             return _response(
                 403,
@@ -329,10 +450,32 @@ class Gateway:
             # Continue with the WebSocket handshake.
             return None
 
+        if url.path == "/answer-media":
+            parameters = urllib.parse.parse_qs(url.query, keep_blank_values=True)
+            if set(parameters) != {"kind", "url"} or any(len(values) != 1 for values in parameters.values()):
+                return _response(400, "That media address could not be read.")
+            document = media_document(parameters["kind"][0], parameters["url"][0])
+            if document is None:
+                return _response(400, "That media address is not supported.")
+            body, policy = document
+            return _response(200, body, "text/html; charset=utf-8", security_policy=policy)
+
         if url.path in STATIC_FILES:
             name, content_type = STATIC_FILES[url.path]
 
             return _response(200, _static(name), content_type)
+
+        if url.path.startswith("/media/stream/"):
+            answer = self._actions.media_stream(url.path[len("/media/stream/"):], request.headers.get("Range"))
+            if answer is not None:
+                return _response(answer.status, answer.body, answer.content_type, answer.headers)
+
+        if url.path.startswith("/media/export/"):
+            parts = url.path[len("/media/export/"):].split("/")
+            if len(parts) == 2:
+                answer = self._actions.media_download(*parts)
+                if answer is not None:
+                    return _response(answer.status, answer.body, answer.content_type, answer.headers)
 
         if url.path.startswith("/images/"):
             image = self._gallery.read(url.path[len("/images/"):])
@@ -364,7 +507,7 @@ class Gateway:
 
         with self._lock:
             valid = any(
-                secrets.compare_digest(key, known)
+                _same_secret(key, known)
                 for known in self._keys
             )
 
@@ -390,6 +533,44 @@ class Gateway:
                 ),
             },
         )
+
+    # -- questions for the owner -------------------------------------
+
+    def _show_to_windows(self, message: dict, recipients=None) -> list:
+        """
+        Put a message straight into each connected window's own queue
+        (or only those of `recipients`) and return the windows it
+        reached. It does not touch the event bus, which keeps a
+        history that windows opened later are given.
+        """
+        with self._lock:
+            clients = [
+                c for c in self._web_clients
+                if c["open"] and (recipients is None or c in recipients)
+            ]
+
+        reached = []
+
+        for client in clients:
+            try:
+                client["outbox"].put_nowait(message)
+                reached.append(client)
+            except queue.Full:
+                pass
+
+        return reached
+
+    def window_count(self) -> int:
+        """How many windows are connected and able to answer."""
+        with self._lock:
+            return sum(1 for c in self._web_clients if c["open"])
+
+    def ask_owner(self, prompt: dict):
+        """
+        Ask the owner a question in the window and wait for the answer.
+        Returns the id of the answer chosen, or None for no answer.
+        """
+        return self._prompts.ask(prompt)
 
     # -- WebSocket ---------------------------------------------------
 
@@ -418,7 +599,11 @@ class Gateway:
                     return
 
                 try:
-                    websocket.send(json.dumps(event))
+                    websocket.send(
+                        bytes(event)
+                        if isinstance(event, (bytes, bytearray))
+                        else json.dumps(event)
+                    )
                 except Exception:
                     # The window has gone; the reading loop notices too.
                     return
@@ -432,15 +617,30 @@ class Gateway:
         # Binary data this window has sent and not yet used.
         upload = bytearray()
 
+        # What is known about this client. A web page is "web"; a
+        # program Freya paired is "native" and may be given playback.
+        client = {
+            "kind": "native" if getattr(websocket, "freya_native_session", None) else "web",
+            "session": getattr(websocket, "freya_native_session", None),
+            "playback": None,
+            "outbox": outbox,
+            "open": True,
+        }
+
         with self._lock:
             self._clients += 1
             self.ever_connected = True
+
+            if client["kind"] == "web":
+                self._web_clients.append(client)
 
         try:
             # Subscribing and taking the history are one step, so an
             # event published right now is in exactly one of them.
             # Later events queue up and are sent after the hello.
-            history = self._bus.subscribe_with_history(outbox.put_nowait)
+            history, console = self._bus.subscribe_with_history(
+                outbox.put_nowait, snapshot=self._actions.console_history,
+            )
 
             websocket.send(
                 json.dumps(
@@ -449,7 +649,7 @@ class Gateway:
                         "history": history,
                         "images": self._gallery.list(),
                         "status": self._actions.status(),
-                        "console": self._actions.console_history(),
+                        "console": console,
                         "voice": self._actions.voice_state(),
                         "avatar": self._actions.avatar_state(),
                     }
@@ -459,12 +659,29 @@ class Gateway:
             sender.start()
 
             for raw in websocket:
-                self._handle_message(websocket, raw, upload, outbox)
+                self._handle_message(websocket, raw, upload, outbox, client)
         except Exception:
             # The window closed or the connection broke.
             pass
         finally:
+            client["open"] = False
+
+            with self._lock:
+                if client in self._web_clients:
+                    self._web_clients.remove(client)
+
+            # A question shown only in this window can no longer be
+            # answered; the turn waiting on it is released now.
+            self._prompts.window_gone(client)
+
+            self.speech.release(client["playback"])
             self._bus.unsubscribe(outbox.put_nowait)
+
+            if client["kind"] == "native":
+                try:
+                    self._actions.client_closed("native")
+                except Exception:
+                    pass
 
             # Let the sending thread finish, even if the queue is full.
             while sender.is_alive():
@@ -483,9 +700,89 @@ class Gateway:
                 if not self._clients:
                     self._no_clients_since = time.monotonic()
 
-    def _handle_message(self, websocket, raw, upload, outbox=None) -> None:
+    def _playback_sender(self, websocket, client):
+        """
+        What the speech relay uses to send to the client playing her
+        voice. The relay gives playback up when a send fails, so a client
+        that cannot keep up is disconnected: it comes back with its
+        session and takes playback again. Left connected, it would stay
+        silent while her voice played on the speakers.
+        """
+        outbox = client["outbox"]
+
+        def send(item):
+            if not client["open"]:
+                return False
+
+            try:
+                outbox.put(item, timeout=PLAYBACK_SEND_SECONDS)
+            except queue.Full:
+                client["open"] = False
+
+                try:
+                    # Not close(): that waits for the client to answer.
+                    websocket.socket.shutdown(socket.SHUT_RDWR)
+                except Exception:
+                    pass
+
+                return False
+
+            return True
+
+        return send
+
+    def _introduce(self, websocket, message, client) -> None:
+        """
+        A client says what it is and what it would like. It is told what
+        it has been given, or refused if it speaks another version.
+        """
+        if message.get("protocol") != PROTOCOL_VERSION:
+            websocket.send(
+                json.dumps(
+                    {
+                        "type": "refused",
+                        "protocol": PROTOCOL_VERSION,
+                        "reason": f"Freya speaks version {PROTOCOL_VERSION} of this protocol.",
+                    }
+                )
+            )
+            websocket.close()
+            return
+
+        asked = message.get("features")
+        asked = [f for f in asked if isinstance(f, str)] if isinstance(asked, list) else []
+        unknown = [f for f in asked if f not in CLIENT_FEATURES]
+        granted = []
+
+        # Only a program Freya paired may play her voice, and only one.
+        if "speech.playback" in asked and client["kind"] == "native" and client["playback"] is None:
+            client["playback"] = self.speech.claim(self._playback_sender(websocket, client))
+
+            if client["playback"] is not None:
+                granted.append("speech.playback")
+
+        websocket.send(
+            json.dumps(
+                {
+                    "type": "welcome",
+                    "protocol": PROTOCOL_VERSION,
+                    "features": granted,
+                    "not_available": [f for f in asked if f not in granted and f not in unknown],
+                    "unknown": unknown[:20],
+                    "session": client["session"],
+                    "limits": {
+                        "message_bytes": MAX_MESSAGE_BYTES,
+                        "text_characters": MAX_TEXT_LENGTH,
+                    },
+                }
+            )
+        )
+
+    def _handle_message(self, websocket, raw, upload, outbox=None, client=None) -> None:
         def reject(reason):
             websocket.send(json.dumps({"type": "error", "text": reason}))
+
+        client = client or {"kind": "web", "session": None, "playback": None, "outbox": outbox, "open": True}
 
         if isinstance(raw, (bytes, bytearray)):
             if len(upload) + len(raw) > MAX_UPLOAD_BYTES:
@@ -504,6 +801,16 @@ class Gateway:
             return reject("That message could not be read.")
 
         kind = message.get("type")
+
+        if kind == "client.hello":
+            return self._introduce(websocket, message, client)
+
+        if kind in ("speech.started", "speech.finished", "speech.interrupted"):
+            # Believed only from the client that holds playback.
+            if client["playback"] is not None:
+                self.speech.acknowledge(client["playback"], message)
+
+            return
 
         if kind in ("say", "image", "command"):
             text = message.get("text")
@@ -539,6 +846,24 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._work.put((kind, (message, outbox)))
+        elif kind == "cloud":
+            # The owner's cloud settings and the briefs that were
+            # sent. Like the Memory tab's answers, these go back to
+            # this window only.
+            if self._stopping.is_set() or outbox is None:
+                return reject("Freya is shutting down.")
+
+            self._work.put((kind, (message, outbox)))
+        elif kind == "media":
+            if self._stopping.is_set() or outbox is None:
+                return reject("Freya is shutting down.")
+            if message.get("action") == "transcript-import":
+                message["upload"] = bytes(upload)
+                upload.clear()
+            try:
+                self._media_work.put_nowait((message, outbox))
+            except queue.Full:
+                return reject("Too many media requests are waiting.")
         elif kind == "avatar":
             # The avatar service checks every field itself and sends
             # each request through the broker.
@@ -546,6 +871,13 @@ class Gateway:
                 return reject("Freya is shutting down.")
 
             self._avatar_work.put(message)
+        elif kind == "cloud.answer":
+            # The owner's answer to a question Freya put. It is taken
+            # here, on this window's own thread: the turn that asked is
+            # waiting for it, so it cannot be queued behind that turn.
+            # Only a window may answer.
+            if client["kind"] == "web":
+                self._prompts.answer(message.get("id"), message.get("choice"))
         elif kind == "mute":
             self._actions.set_muted(message.get("muted") is True)
         elif kind == "volume":
@@ -585,6 +917,21 @@ class Gateway:
                 **answer,
             )
 
+    def _run_media_work(self) -> None:
+        while True:
+            job = self._media_work.get()
+            if job is None or self._stopping.is_set():
+                return
+            message, outbox = job
+            try:
+                answer = self._actions.media_request(message)
+            except Exception:
+                answer = {"error": "The media request failed. Try again."}
+            try:
+                outbox.put_nowait({"type": "media", "request": message.get("request"), **answer})
+            except queue.Full:
+                pass
+
     def _run_work(self) -> None:
         """
         Turns asked for from the window run here one after another, so
@@ -615,6 +962,18 @@ class Gateway:
                         "type": "memory",
                         "request": message.get("request"),
                         **self._actions.memory_request(message),
+                    }
+
+                    try:
+                        outbox.put_nowait(answer)
+                    except queue.Full:
+                        pass
+                elif kind == "cloud":
+                    message, outbox = text
+                    answer = {
+                        "type": "cloud",
+                        "request": message.get("request"),
+                        **self._actions.cloud_request(message),
                     }
 
                     try:

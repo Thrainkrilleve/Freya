@@ -23,6 +23,15 @@ from freya.spatial_avatar.renderers.tk_placeholder import (
 )
 
 
+def on_windows() -> bool:
+    """
+    Whether this is the platform the web view window is built for. A
+    function, so a test can stand in for it without changing `os.name`
+    for the whole process (which switches `pathlib` to Windows paths).
+    """
+    return os.name == "nt"
+
+
 # The model file to draw, given by whoever starts the overlay.
 MODEL_VARIABLE = "FREYA_AVATAR_MODEL"
 
@@ -95,6 +104,18 @@ class PageServer:
         self.model_path = Path(model_path)
         self.page_dir = Path(page_dir)
         self.vendor_dir = Path(vendor_dir).resolve()
+        # The library's script files, listed once: an address can only
+        # name one of these, and no path is ever built from an address.
+        self.vendor_files = {
+            path.relative_to(self.vendor_dir).as_posix(): path
+            for path in self.vendor_dir.rglob("*.js")
+            if path.is_file()
+            and self.vendor_dir in path.resolve().parents
+        }
+        self.page_files = {
+            name: (self.page_dir / name, media_type)
+            for name, media_type in PAGE_FILES.items()
+        }
         self.key = secrets.token_urlsafe(24)
         self._server = None
 
@@ -109,16 +130,18 @@ class PageServer:
 
         name = path[len(prefix):].split("?", 1)[0]
 
-        if name in PAGE_FILES:
-            return self.page_dir / name, PAGE_FILES[name]
+        page = self.page_files.get(name)
+
+        if page is not None:
+            return page
 
         if name == "model.vrm":
             return self.model_path, "model/gltf-binary"
 
-        if name.startswith("vendor/") and name.endswith(".js"):
-            target = (self.vendor_dir / name[len("vendor/"):]).resolve()
+        if name.startswith("vendor/"):
+            target = self.vendor_files.get(name[len("vendor/"):])
 
-            if self.vendor_dir in target.parents and target.is_file():
+            if target is not None:
                 return target, "text/javascript; charset=utf-8"
 
         return None
@@ -245,7 +268,7 @@ class WebRenderer(TkPlaceholderRenderer):
 
     @classmethod
     def available(cls):
-        if os.name != "nt":
+        if not on_windows():
             return "The 3D avatar window is only built for Windows so far."
 
         problem = super().available()

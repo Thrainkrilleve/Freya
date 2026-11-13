@@ -142,7 +142,36 @@ def test_system_info_executes_through_registry(registry):
     assert result.result["python_version"]
 
 
-def test_cpu_memory_and_disk_tools_return_live_data(registry):
+@pytest.fixture
+def fake_machine(monkeypatch):
+    """
+    A made-up machine behind psutil and shutil, so the test proves the
+    tools' shape and arithmetic without reading the one it runs on
+    (a runner may have a 0-byte mount, one core, or no frequency).
+    """
+    Usage = namedtuple("Usage", "total used free")
+    Partition = namedtuple("Partition", "mountpoint fstype opts")
+    Frequency = namedtuple("Frequency", "current min max")
+    Memory = namedtuple("Memory", "total available used percent")
+    gb = 1024 ** 3
+
+    monkeypatch.setattr(system_tools.psutil, "cpu_percent", lambda interval=None: 12.5)
+    monkeypatch.setattr(system_tools.psutil, "cpu_freq", lambda: Frequency(3400.0, 800.0, 5200.0))
+    monkeypatch.setattr(system_tools.psutil, "cpu_count", lambda logical=True: 16 if logical else 8)
+    monkeypatch.setattr(system_tools.psutil, "virtual_memory", lambda: Memory(64 * gb, 40 * gb, 24 * gb, 37.5))
+    monkeypatch.setattr(system_tools.psutil, "disk_partitions", lambda all=False: [
+        Partition("C:\\", "NTFS", "rw,fixed"),
+        Partition("E:\\", "", "cdrom"),
+        Partition("D:\\", "NTFS", "rw,removable"),
+    ])
+    monkeypatch.setattr(system_tools.shutil, "disk_usage", lambda mountpoint: {
+        "C:\\": Usage(2000 * gb, 1200 * gb, 800 * gb),
+        "D:\\": Usage(4000 * gb, 1000 * gb, 3000 * gb),
+    }[mountpoint])
+    monkeypatch.setattr(system_tools, "_processor_name", lambda: "Fake i9")
+
+
+def test_cpu_memory_and_disk_tools_return_their_shape(registry, fake_machine):
     cpu = registry.execute("system.cpu").result
     memory = registry.execute("system.memory").result
     drives = registry.execute("system.disk").result
@@ -157,11 +186,14 @@ def test_cpu_memory_and_disk_tools_return_live_data(registry):
         memory["total_gb"], abs=0.02
     )
 
-    assert len(drives) >= 1
+    # The drive with no file system (an empty optical drive) is skipped.
+    assert [d["drive"] for d in drives] == ["C:\\", "D:\\"]
+    assert [d["removable"] for d in drives] == [False, True]
     for drive in drives:
-        assert drive["filesystem"]
+        assert drive["filesystem"] == "NTFS"
         assert drive["total_gb"] > 0
         assert 0 <= drive["used_percent"] <= 100
+    assert drives[0]["used_percent"] == 60.0
 
 
 def test_unreadable_drives_are_skipped(monkeypatch):

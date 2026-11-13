@@ -15,12 +15,15 @@
       <button class="tab" role="tab" id="tab-images" aria-selected="false" aria-controls="view-images" data-view="images">Images <span class="badge" id="images-badge" hidden></span></button>
       <button class="tab" role="tab" id="tab-voice" aria-selected="false" aria-controls="view-voice" data-view="voice">Voice</button>
       <button class="tab" role="tab" id="tab-avatar" aria-selected="false" aria-controls="view-avatar" data-view="avatar">Avatar</button>
+      <button class="tab" role="tab" id="tab-media" aria-selected="false" aria-controls="view-media" data-view="media">Media</button>
       <button class="tab" role="tab" id="tab-memory" aria-selected="false" aria-controls="view-memory" data-view="memory">Memory</button>
+      <button class="tab" role="tab" id="tab-cloud" aria-selected="false" aria-controls="view-cloud" data-view="cloud">Cloud</button>
       <button class="tab" role="tab" id="tab-console" aria-selected="false" aria-controls="view-console" data-view="console" hidden>Console</button>
     </nav>
 
     <div class="status" id="status" aria-live="polite">
       <span class="pill" id="pill-model" title="Language model">Model</span>
+      <span class="pill" id="pill-voice" title="Speech output">Voice</span>
       <span class="pill" id="pill-images" title="Image generation">Images</span>
       <button class="pill pill-button" id="pill-mic" title="Turn the microphone on or off">Microphone</button>
     </div>
@@ -38,6 +41,13 @@
         <textarea id="chat-input" rows="1" placeholder="Message Freya, or type /help for commands" aria-label="Message Freya" maxlength="4000"></textarea>
         <label class="volume" title="How loudly Freya speaks. A change applies from her next sentence.">Voice <span class="value" id="voice-volume-value">100%</span>
           <input type="range" id="voice-volume" min="0" max="100" step="5" value="100" aria-label="Voice volume"></label>
+        <label class="volume" title="How much your next message matters, if Freya hands part of it to a cloud model. Low waits while allowance is short; high may go past today's share. It goes back to normal after each message.">Cloud work
+          <select id="chat-value" aria-label="Value of the next message for cloud work">
+            <option value="low">Low</option>
+            <option value="normal" selected>Normal</option>
+            <option value="high">High</option>
+          </select></label>
+        <label class="volume" title="Do not wait for an allowance to reset. Applies to your next message only."><input type="checkbox" id="chat-urgent"> Urgent</label>
         <button type="button" class="ghost" id="stop-speaking" title="Stop her speaking">Stop voice</button>
         <button type="submit" class="primary">Send</button>
       </form>
@@ -350,6 +360,156 @@
       </div>
     </section>
 
+    <section class="view" id="view-cloud" role="tabpanel" aria-labelledby="tab-cloud">
+      <div class="voice-scroll">
+        <div class="voice-bar">
+          <p class="voice-message" id="cloud-message" role="status"></p>
+        </div>
+
+        <article class="panel">
+          <h2>Cloud models Freya may use</h2>
+          <p class="panel-note">Freya answers you herself, on this computer. With a box ticked she may hand part of a task to that company's model, through your own subscription. With every box clear, nothing is sent anywhere. Ticking a box unlocks that provider: it is allowed, and given a weekly allowance you can change. Clearing the box locks it again.</p>
+          <div id="cloud-providers"></div>
+        </article>
+
+        <article class="panel">
+          <h2>What may leave this computer</h2>
+          <p class="panel-note">For each kind of material: allowed, ask you first, or never. Nothing you answer in a prompt can send a kind set to never.</p>
+          <div class="fields" id="cloud-material"></div>
+          <h3>What you have always allowed</h3>
+          <p class="panel-note">Made when you answer a prompt with "Always allow". Each covers one kind of task, one provider and the kinds of material named, and still cannot send a kind set to never.</p>
+          <ul class="memory-list" id="cloud-rules"></ul>
+        </article>
+
+        <article class="panel">
+          <h2>How good a model must be</h2>
+          <p class="panel-note">The share of test tasks a model must have passed, for a kind of work, before Freya gives it work of each value. Low cannot ask more than normal, nor normal more than high.</p>
+          <form class="actions" id="cloud-bars-form">
+            <div class="fields">
+              <label>Low value (%) <input type="number" id="cloud-bar-low" min="1" max="100" step="1"></label>
+              <label>Normal value (%) <input type="number" id="cloud-bar-normal" min="1" max="100" step="1"></label>
+              <label>High value (%) <input type="number" id="cloud-bar-high" min="1" max="100" step="1"></label>
+            </div>
+            <button type="submit" class="primary">Save</button>
+          </form>
+        </article>
+
+        <article class="panel">
+          <h2>Corrections to screening</h2>
+          <p class="panel-note">Before anything is sent, it is compared with what Freya has saved about you, and held if it matches. Here you correct that. "Not private" stops a phrase or one memory from holding a brief. "Always private" always holds it, and wins. Use a memory's number from the Memory tab.</p>
+          <form class="actions" id="cloud-mark-form">
+            <select id="cloud-mark-list" aria-label="Which list">
+              <option value="not-private">Not private</option>
+              <option value="always-private">Always private</option>
+            </select>
+            <select id="cloud-mark-what" aria-label="Phrase or memory">
+              <option value="phrase">a phrase</option>
+              <option value="memory">a memory number</option>
+            </select>
+            <input type="text" id="cloud-mark-value" maxlength="200" aria-label="The phrase or the memory number">
+            <button type="submit" class="primary">Add</button>
+          </form>
+          <h3>Not private</h3>
+          <ul class="memory-list" id="cloud-not-private"></ul>
+          <h3>Always private</h3>
+          <ul class="memory-list" id="cloud-always-private"></ul>
+        </article>
+
+        <article class="panel">
+          <h2>What has been sent <span class="panel-note" id="cloud-sent-count"></span></h2>
+          <p class="panel-note">The exact text of every brief that left this computer, or may have. It is kept here only.</p>
+          <button type="button" class="ghost" id="cloud-sent-show">Show the most recent</button>
+          <ul class="memory-list" id="cloud-sent"></ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="view" id="view-media" role="tabpanel" aria-labelledby="tab-media">
+      <div class="media-scroll">
+        <p id="media-status" role="status">Connect to Freya to open the media library.</p>
+        <div class="actions">
+          <button id="media-refresh" class="ghost">Refresh library</button>
+          <button id="media-scan" class="primary">Find downloaded media</button>
+          <label class="check"><input type="checkbox" id="media-auto"> Analyze imported media when I play it</label>
+        </div>
+        <p id="media-setup" class="panel-note"></p>
+        <div class="media-layout">
+          <div>
+            <article class="panel">
+              <h2>Library</h2>
+              <label>Filter by tag <input id="media-tag-filter" maxlength="40"></label>
+              <button id="media-filter" class="ghost">Filter</button>
+              <div id="media-library"></div>
+              <div id="media-candidates"></div>
+            </article>
+            <article class="panel">
+              <h2>Find videos</h2>
+              <label>Search YouTube <input id="media-web-query" maxlength="200"></label>
+              <button id="media-discover" class="ghost">Search</button>
+              <div id="media-discovery"></div>
+              <label>YouTube link <input id="media-url" type="url" maxlength="2000"></label>
+              <label>Title <input id="media-title" maxlength="300"></label>
+              <button id="media-bookmark" class="primary">Add link</button>
+              <p class="panel-note">YouTube uses its visible player. Downloaded copies and supplied transcripts can be analyzed separately.</p>
+            </article>
+            <article class="panel">
+              <h2>Jellyfin</h2>
+              <button id="media-jellyfin-connect" class="ghost">Load libraries</button>
+              <select id="media-jellyfin-library" aria-label="Jellyfin library"></select>
+              <label>Search library <input id="media-jellyfin-query" maxlength="100"></label>
+              <button id="media-jellyfin-search" class="ghost">Browse</button>
+              <div id="media-jellyfin-results"></div>
+              <button id="media-jellyfin-next" class="ghost" hidden>Next page</button>
+            </article>
+          </div>
+          <div>
+            <article class="panel">
+              <h2 id="media-selected-title">Choose an item</h2>
+              <div id="media-player"></div>
+              <p id="media-coverage" class="panel-note"></p>
+              <div class="actions">
+                <button id="media-play" class="primary" disabled>Play</button>
+                <button id="media-analyze" class="ghost" disabled>Analyze speech</button>
+                <button id="media-export" class="ghost" disabled>Export memory</button>
+                <button id="media-delete" class="ghost" disabled>Remove from library</button>
+              </div>
+              <div id="media-exports"></div>
+              <label>Tags, separated by commas <input id="media-tags" maxlength="400"></label>
+              <button id="media-save-tags" class="ghost">Save tags</button>
+              <label>Time in seconds <input id="media-time" type="number" min="0" step="0.1" value="0"></label>
+              <button id="media-stamp" class="ghost">Use player time</button>
+              <label>Note <textarea id="media-note" rows="2" maxlength="2000"></textarea></label>
+              <button id="media-add-note" class="ghost">Add timestamped note</button>
+              <div id="media-notes"></div>
+              <details>
+                <summary>Skip a part of this local recording</summary>
+                <label>Start seconds <input id="media-skip-start" type="number" min="0" step="0.1"></label>
+                <label>End seconds <input id="media-skip-end" type="number" min="0" step="0.1"></label>
+                <label>Label <input id="media-skip-label" maxlength="80" value="Advertisement"></label>
+                <button id="media-add-skip" class="ghost">Confirm skip interval</button>
+                <div id="media-skips"></div>
+              </details>
+              <details>
+                <summary>Supply a transcript or subtitles</summary>
+                <input id="media-transcript-file" type="file" accept=".srt,.vtt,.txt" aria-label="Subtitle or transcript file">
+                <textarea id="media-transcript-text" rows="4" maxlength="50000" placeholder="Paste a transcript, optionally with timestamps" aria-label="Transcript"></textarea>
+                <button id="media-import-transcript" class="ghost">Replace transcript</button>
+              </details>
+              <h3>Summaries and transcript</h3>
+              <div id="media-text"></div>
+            </article>
+            <article class="panel">
+              <h2>Search media memory</h2>
+              <label>Words to find <input id="media-memory-query" maxlength="200"></label>
+              <button id="media-memory-search" class="ghost">Search memory</button>
+              <div id="media-memory-results"></div>
+              <h3>Analysis queue</h3>
+              <div id="media-jobs"></div>
+            </article>
+          </div>
+        </div>
+      </div>
+    </section>
     <section class="view" id="view-console" role="tabpanel" aria-labelledby="tab-console">
       <pre class="console" id="console-output" aria-live="off"></pre>
 
@@ -362,6 +522,18 @@
     </section>
   </main>
 
+  <dialog class="ask" id="cloud-prompt" aria-labelledby="cloud-prompt-title">
+    <h2 id="cloud-prompt-title"></h2>
+    <ul class="ask-lines" id="cloud-prompt-lines"></ul>
+    <p class="panel-note" id="cloud-prompt-reason"></p>
+    <ul class="ask-matches" id="cloud-prompt-matches"></ul>
+    <details class="ask-text">
+      <summary id="cloud-prompt-text-label"></summary>
+      <pre id="cloud-prompt-text"></pre>
+    </details>
+    <div class="actions" id="cloud-prompt-choices"></div>
+  </dialog>
+
   <div class="lightbox" id="lightbox" hidden>
     <figure>
       <img id="lightbox-image" alt="">
@@ -370,7 +542,10 @@
   </div>
 
   <script type="importmap">{"imports":{"three":"/vendor/three/three.module.js","three/addons/":"/vendor/three/addons/","@pixiv/three-vrm":"/vendor/three-vrm/three-vrm.module.min.js"}}</script>
+  <script src="/rich-chat.js"></script>
   <script src="/app.js"></script>
+  <script src="/media.js"></script>
+  <script src="/cloud.js"></script>
   <script type="module" src="/avatar-view.js"></script>
 </body>
 </html>

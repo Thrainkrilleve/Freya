@@ -1,0 +1,11 @@
+# The image every sandbox run starts from: Python, pytest and the runner,
+# nothing else. The owner builds it once with `python -m freya.sandbox setup`,
+# while the network is on. Runs have no network, so nothing can be added
+# during a run.
+FROM docker.io/library/python:3.12-slim
+
+RUN pip install --no-cache-dir "pytest==8.4.2"
+
+COPY runner.py /opt/freya/runner.py
+
+WORKDIR /work

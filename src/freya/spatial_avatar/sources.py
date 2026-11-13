@@ -5,6 +5,8 @@ import zipfile
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from freya.child_environment import child_environment
+
 
 # Where a search looks. The owner's Downloads folder by default;
 # FREYA_AVATAR_SEARCH replaces it with other folders, separated by ";".
@@ -65,6 +67,7 @@ def archive_names(path: Path) -> Optional[List[str]]:
             encoding="utf-8",
             errors="replace",
             timeout=LIST_TIMEOUT_SECONDS,
+            env=child_environment(),
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
     except (OSError, subprocess.SubprocessError):

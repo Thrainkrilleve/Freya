@@ -11,6 +11,7 @@ from typing import List, Optional
 
 import psutil
 
+from freya.child_environment import child_environment
 from freya.core.providers import (
     ProviderDefinition,
     ProviderHealth,
@@ -306,6 +307,7 @@ def _launch(plan: LaunchPlan, log_path=None):
             stdin=subprocess.DEVNULL,
             stdout=output,
             stderr=subprocess.STDOUT,
+            env=child_environment(),
             creationflags=flags,
             close_fds=True,
         )
@@ -458,7 +460,50 @@ class ComfyUIServer:
         if self._log_path is None:
             return "."
 
+        reason = failure_reason(self._log_path)
+
+        if reason:
+            return f": {reason} Its output is in {self._log_path}."
+
         return f". Its output is in {self._log_path}."
+
+
+LOG_TAIL_BYTES = 20_000
+MAX_REASON_CHARACTERS = 300
+
+
+def failure_reason(log_path) -> str:
+    """
+    Why the server stopped, in a sentence, from the end of its own
+    log. Empty when the log does not say.
+
+    The log is ComfyUI's output, which is not trusted text: the
+    reason is cut to a line and a length before anyone is shown it.
+    """
+    try:
+        with open(log_path, "rb") as log:
+            log.seek(0, 2)
+            log.seek(max(0, log.tell() - LOG_TAIL_BYTES))
+            tail = log.read().decode("utf-8", errors="replace")
+    except OSError:
+        return ""
+
+    lines = [line.strip() for line in tail.splitlines() if line.strip()]
+
+    for line in reversed(lines):
+        if "Application Control policy has blocked" in line:
+            # Windows Smart App Control, or a similar policy, refused
+            # to load one of ComfyUI's own files.
+            return (
+                "Windows blocked one of ComfyUI's files (an Application "
+                "Control policy, such as Smart App Control)."
+            )
+
+    for line in reversed(lines[-5:]):
+        if "Error" in line or "error" in line:
+            return line[:MAX_REASON_CHARACTERS].rstrip(".") + "."
+
+    return ""
 
 
 def create_comfyui_provider(server: ComfyUIServer):

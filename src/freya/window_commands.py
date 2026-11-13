@@ -1,10 +1,13 @@
 import contextlib
 import io
 import sys
+import threading
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from freya.file_access import FOLDER_COMMANDS
 from freya.hands_free import LISTENING_COMMANDS, handle_listening_command
+from freya.tools.security_tools import SELF_CHECK_COMMANDS
 
 
 HELP_COMMAND = "/help"
@@ -16,7 +19,8 @@ KEYBOARD_ONLY = ("/talk", "/listen", "/conversation", "/voice-file")
 
 HELP_TEXT = (
     "Commands: /names, /name add <name>, /name remove <name>, /mute, "
-    "/unmute, /interrupt, /image <description>, /terminal, /help. "
+    "/unmute, /interrupt, /image <description>, /folders, /folder open "
+    "<path>, /folder close <path>, /self-check, /terminal, /help. "
     "/memory-help lists the memory commands."
 )
 
@@ -44,27 +48,109 @@ class CommandContext:
     # the answer, or None when the line is not a memory command.
     memory_command: Optional[Callable[[str], Optional[str]]] = None
 
+    # Opens and closes the folders Freya may read: given a line, it
+    # answers on the console and returns True if it was its command.
+    folder_command: Optional[Callable[[str], bool]] = None
+
+    # Runs the read-only security self-check through the broker and
+    # returns the report as text.
+    self_check: Optional[Callable[[], str]] = None
+
 
 class _Both(io.TextIOBase):
     """
-    Writes to two streams at once.
+    Writes to two streams at once: everything to the first, and what
+    the thread that made it writes to the second as well.
+
+    `redirect_stdout` swaps the stream for the whole process, so while
+    a command runs, the listener thread's notices (a wake word heard,
+    the microphone muted) would otherwise be captured too and shown in
+    the chat as the command's answer.
     """
 
     def __init__(self, first, second):
         self._streams = (first, second)
+        self._thread = threading.get_ident()
 
     def writable(self):
         return True
 
     def write(self, text):
-        for stream in self._streams:
-            stream.write(text)
+        self._streams[0].write(text)
+
+        if threading.get_ident() == self._thread:
+            self._streams[1].write(text)
 
         return len(text)
 
     def flush(self):
         for stream in self._streams:
             stream.flush()
+
+
+def run_shared_command(line: str, context: CommandContext) -> Optional[bool]:
+    """
+    Run one of the commands the terminal and the window both offer.
+    Returns None when the line is not one of them; otherwise whether
+    what it printed should also be shown in the window's chat.
+
+    The terminal loop in main.py and the window both call this, so the
+    two stay in step. What only one of them can do (keyboard commands,
+    quitting, the Console tab) stays with its caller.
+    """
+    lowered = line.lower()
+    command = lowered.split()[0] if lowered.split() else ""
+
+    if command == HELP_COMMAND:
+        print(f"Freya: {HELP_TEXT}")
+        return True
+
+    if command == "/interrupt":
+        context.voice.interrupt()
+        print("Freya: Speech playback interrupted.")
+        return True
+
+    if command in LISTENING_COMMANDS:
+        handle_listening_command(
+            line,
+            context.listener,
+            context.settings,
+        )
+        context.publish_status()
+        return True
+
+    if command in FOLDER_COMMANDS:
+        if context.folder_command is None:
+            print("Freya: Folders cannot be opened from here.")
+        else:
+            context.folder_command(line)
+        return True
+
+    if command in SELF_CHECK_COMMANDS:
+        if context.self_check is None:
+            print("Freya: The security self-check cannot be run from here.")
+        else:
+            print(f"Freya: {context.self_check()}")
+        return True
+
+    if command == "/image":
+        prompt = line[len("/image"):].strip()
+
+        if not prompt:
+            print("Usage: /image <description>")
+            return True
+
+        context.run_image(prompt)
+        context.publish_status()
+
+        # The Images tab and the image events already report this.
+        return False
+
+    if command == "/window":
+        print(context.window.open())
+        return True
+
+    return None
 
 
 def _dispatch(line: str, context: CommandContext) -> bool:
@@ -87,44 +173,14 @@ def _dispatch(line: str, context: CommandContext) -> bool:
 
         return True
 
-    if command == HELP_COMMAND:
-        print(f"Freya: {HELP_TEXT}")
-        return True
-
     if command in TERMINAL_COMMANDS:
         print("Freya: The Console tab shows what my terminal shows.")
         return True
 
-    if command == "/interrupt":
-        context.voice.interrupt()
-        print("Freya: Speech playback interrupted.")
-        return True
+    shared = run_shared_command(line, context)
 
-    if command in LISTENING_COMMANDS:
-        handle_listening_command(
-            line,
-            context.listener,
-            context.settings,
-        )
-        context.publish_status()
-        return True
-
-    if command == "/image":
-        prompt = line[len("/image"):].strip()
-
-        if not prompt:
-            print("Usage: /image <description>")
-            return True
-
-        context.run_image(prompt)
-        context.publish_status()
-
-        # The Images tab and the image events already report this.
-        return False
-
-    if command == "/window":
-        print(context.window.open())
-        return True
+    if shared is not None:
+        return shared
 
     if command in KEYBOARD_ONLY:
         print(

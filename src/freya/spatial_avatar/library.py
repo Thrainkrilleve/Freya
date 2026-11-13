@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from freya.storage.locations import store_path
 from typing import Dict, List, Optional, Tuple
 
 from freya.spatial_avatar.vrm import (
@@ -15,12 +16,13 @@ from freya.spatial_avatar.vrm import (
     read_thumbnail,
     read_vrm,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 
 # VRM files are put here by the owner. Freya only ever reads them.
-MODELS_DIR = DATA_DIR / "avatar_models"
+MODELS_DIR = store_path("avatar_models")
 LIBRARY_PATH = DATA_DIR / "avatar_library.json"
 
 MAX_MODELS = 200

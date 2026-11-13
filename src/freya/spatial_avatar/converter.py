@@ -6,19 +6,22 @@ import subprocess
 import tempfile
 import zipfile
 from pathlib import Path
+from freya.storage.locations import store_path
 from typing import Callable, List, Optional
 
 import psutil
 
+from freya.child_environment import child_environment
 from freya.spatial_avatar.sources import (
     AVATAR_FILES,
     CHARACTER_FILES,
     best_inside,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
-WORK_DIR = DATA_DIR / "avatar_work"
+DATA_DIR = data_dir()
+WORK_DIR = store_path("avatar_work")
 SCRIPTS_DIR = Path(__file__).resolve().parent / "blender"
 
 INSPECT_TIMEOUT_SECONDS = 300
@@ -104,6 +107,7 @@ def run_blender(blender: Path, script: str, request: dict, timeout: float, log: 
                 stdin=subprocess.DEVNULL,
                 stdout=output,
                 stderr=subprocess.STDOUT,
+                env=child_environment(),
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
 
@@ -166,6 +170,7 @@ def unpack(archive: Path, destination: Path) -> List[Path]:
                 [str(tar), "-xf", str(archive), "-C", str(destination)],
                 capture_output=True,
                 timeout=EXTRACT_TIMEOUT_SECONDS,
+                env=child_environment(),
                 creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
             )
         except (OSError, subprocess.SubprocessError) as exc:

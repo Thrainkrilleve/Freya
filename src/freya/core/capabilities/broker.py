@@ -1,16 +1,28 @@
 import hashlib
 import inspect
 import json
+import logging
+import threading
 import uuid
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, List, Optional
 
+from freya.core.capabilities.execution_context import (enter_broker_context, exit_broker_context)
 from freya.core.capabilities.capability import (
     CapabilityStatus,
 )
 from freya.core.policy.engine import (
     PolicyDecision,
 )
+
+
+logger = logging.getLogger(__name__)
+
+# Audit records that could not be written after the fact (a denial, or
+# the outcome of an action that already ran) are kept here and written
+# before anything else may run. The limit bounds memory while storage
+# is down; nothing can be dispatched in that state anyway.
+PENDING_AUDIT_LIMIT = 256
 
 
 @dataclass(frozen=True)
@@ -52,6 +64,11 @@ class BrokerResult:
     provider: Optional[str] = None
     result: Any = None
     error: Optional[str] = None
+    # False when the record of this decision or outcome could not be
+    # written yet. The broker keeps it and refuses new dispatches
+    # until it has been written. For a stream this reflects only the
+    # pre-execution record; the outcome is written when it ends.
+    audit_recorded: bool = True
 
 
 def _arguments_digest(args, kwargs) -> str:
@@ -72,6 +89,20 @@ class CapabilityBroker:
     executed, and has its outcome recorded. If policy cannot be read
     or the pre-execution audit record cannot be written, the
     capability is not executed.
+
+    Audit writes fall into two classes:
+
+    - Required before acting (the dispatch record). If it cannot be
+      written the capability does not run.
+    - Required, but after the fact (a denial, an unavailability
+      decision, an outcome). The decision has already been made or
+      the action has already happened, so failing to write cannot
+      undo it. These are never dropped silently: the failure is
+      logged, reported on the result, and the record is kept and
+      written before any further capability may be dispatched.
+
+    Best-effort telemetry (checkpoints) lives in the audit log itself
+    and never affects whether a capability runs.
     """
 
     def __init__(
@@ -85,6 +116,22 @@ class CapabilityBroker:
         self._policy = policy
         self._audit = audit
         self._principal = principal
+
+        self._pending_lock = threading.Lock()
+        self._pending_audit: List[dict] = []
+        self._lost_audit_records = 0
+
+    @property
+    def pending_audit_records(self) -> int:
+        """Audit records waiting to be written; while nonzero, nothing is dispatched."""
+        with self._pending_lock:
+            return len(self._pending_audit)
+
+    @property
+    def lost_audit_records(self) -> int:
+        """Records dropped because the pending queue was full."""
+        with self._pending_lock:
+            return self._lost_audit_records
 
     def exists(self, name: str) -> bool:
         return self._registry.exists(name)
@@ -109,7 +156,7 @@ class CapabilityBroker:
             else None
         )
 
-        def result(outcome, error=None, value=None):
+        def result(outcome, error=None, value=None, recorded=True):
             return BrokerResult(
                 success=outcome in ("succeeded", "streaming"),
                 capability_name=capability_name,
@@ -118,6 +165,7 @@ class CapabilityBroker:
                 provider=provider,
                 result=value,
                 error=error,
+                audit_recorded=recorded,
             )
 
         if capability is None:
@@ -152,7 +200,7 @@ class CapabilityBroker:
         }
 
         if not decision.allow:
-            self._record_quietly(
+            recorded = self._record_after_the_fact(
                 event,
                 kind="decision",
                 outcome="denied",
@@ -160,6 +208,7 @@ class CapabilityBroker:
             return result(
                 "denied",
                 error=f"Not authorized: {decision.reason}",
+                recorded=recorded,
             )
 
         status = self._registry.get_status(capability_name)
@@ -169,13 +218,22 @@ class CapabilityBroker:
                 "Capability is not available. "
                 f"Current status: {status.value}"
             )
-            self._record_quietly(
+            recorded = self._record_after_the_fact(
                 event,
                 kind="decision",
                 outcome="unavailable",
                 error_summary=error,
             )
-            return result("unavailable", error=error)
+            return result("unavailable", error=error, recorded=recorded)
+
+        if not self._flush_pending_audit():
+            return result(
+                "denied",
+                error=(
+                    "Not performed because earlier audit records "
+                    "have not been written yet."
+                ),
+            )
 
         try:
             self._audit.record(kind="dispatch", **event)
@@ -188,11 +246,15 @@ class CapabilityBroker:
                 ),
             )
 
-        execution = self._registry.execute(
-            capability_name,
-            *args,
-            **kwargs,
-        )
+        token = enter_broker_context(self._principal, self._policy)
+        try:
+            execution = self._registry.execute(
+                capability_name,
+                *args,
+                **kwargs,
+            )
+        finally:
+            exit_broker_context(token)
 
         # A destructive action that raised may still have had an effect.
         failure = (
@@ -217,9 +279,7 @@ class CapabilityBroker:
 
         outcome = "succeeded" if execution.success else failure
 
-        # If this write fails, the operation is closed out as
-        # unknown-outcome when the audit log next starts.
-        self._record_quietly(
+        recorded = self._record_after_the_fact(
             event,
             kind="outcome",
             outcome=outcome,
@@ -230,6 +290,7 @@ class CapabilityBroker:
             outcome,
             error=execution.error,
             value=execution.result,
+            recorded=recorded,
         )
 
     def _audited_stream(self, stream, event, failure):
@@ -243,15 +304,72 @@ class CapabilityBroker:
             error = str(exc)
             raise
         finally:
-            self._record_quietly(
+            self._record_after_the_fact(
                 event,
                 kind="outcome",
                 outcome=outcome,
                 error_summary=error,
             )
 
-    def _record_quietly(self, event, **fields):
-        try:
-            self._audit.record(**event, **fields)
-        except Exception:
-            pass
+    def _record_after_the_fact(self, event, **fields) -> bool:
+        """
+        Write a record of something that has already been decided or
+        done. Returns False when it could not be written now; it is
+        then queued and must be written before the next dispatch.
+        """
+        record = {**event, **fields}
+
+        with self._pending_lock:
+            # Keep the trail in order: older pending records go first.
+            if self._write_pending_locked():
+                try:
+                    self._audit.record(**record)
+                    return True
+                except Exception as exc:
+                    failure = exc
+            else:
+                failure = None
+
+            self._queue_locked(record)
+
+        logger.error(
+            "Audit record for operation %s (%s, %s) could not be "
+            "written and is queued; new dispatches are refused until "
+            "it is written.%s",
+            record["operation_id"],
+            record["capability"],
+            record["kind"],
+            f" {type(failure).__name__}: {failure}"[:200] if failure else "",
+        )
+        return False
+
+    def _flush_pending_audit(self) -> bool:
+        """Write queued records. True when none remain."""
+        with self._pending_lock:
+            return self._write_pending_locked()
+
+    def _write_pending_locked(self) -> bool:
+        while self._pending_audit:
+            try:
+                self._audit.record(**self._pending_audit[0])
+            except Exception:
+                return False
+            self._pending_audit.pop(0)
+        return True
+
+    def _queue_locked(self, record: dict) -> None:
+        if len(self._pending_audit) >= PENDING_AUDIT_LIMIT:
+            # Dropping is a loss of evidence, so it is loud. A lost
+            # outcome is still closed out as unknown-outcome when the
+            # audit log next starts, because its dispatch was written.
+            self._lost_audit_records += 1
+            logger.critical(
+                "Audit queue full: record for operation %s (%s, %s) "
+                "was lost (%d lost so far).",
+                record["operation_id"],
+                record["capability"],
+                record["kind"],
+                self._lost_audit_records,
+            )
+            return
+        self._pending_audit.append(record)

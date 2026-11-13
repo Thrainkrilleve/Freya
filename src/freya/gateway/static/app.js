@@ -1,7 +1,7 @@
 "use strict";
 
-// Everything Freya sends is shown with textContent, never as HTML: her
-// replies and tool results are not trusted markup.
+// Model text is placed in text nodes. Rich display uses a restricted renderer;
+// replies and tool results are never trusted HTML.
 
 const $ = (id) => document.getElementById(id);
 
@@ -94,6 +94,7 @@ function finishReply() {
   if (currentReply) {
     currentReply.bubble.classList.remove("is-writing");
     if (!currentReply.body.textContent.trim()) currentReply.bubble.remove();
+    else FreyaRichChat.render(currentReply.body, currentReply.body.textContent);
     currentReply = null;
   }
 }
@@ -122,6 +123,11 @@ function showEvent(event) {
 
     case "assistant_end":
       finishReply();
+      break;
+
+    case "source_response":
+      finishReply();
+      FreyaRichChat.sourceMessage(event, addToChat);
       break;
 
     case "notice":
@@ -164,8 +170,26 @@ function showEvent(event) {
       avatarResult(event);
       break;
 
+    case "media":
+      window.dispatchEvent(new CustomEvent("freya-media", {detail: event}));
+      break;
+
     case "memory":
       memoryResult(event);
+      break;
+
+    case "cloud":
+      window.dispatchEvent(new CustomEvent("freya-cloud", {detail: event}));
+      break;
+
+    // A question Freya puts to the owner, and its being closed. These
+    // are handed straight to this window and are never replayed.
+    case "cloud.prompt":
+      window.dispatchEvent(new CustomEvent("freya-cloud-prompt", {detail: event}));
+      break;
+
+    case "cloud.prompt.closed":
+      window.dispatchEvent(new CustomEvent("freya-cloud-prompt-closed", {detail: event}));
       break;
 
     case "status":
@@ -209,6 +233,33 @@ function isQuitWord(text) {
   return word === "exit" || word === "quit";
 }
 
+// How much the next message matters for cloud work, when the owner
+// set it to something other than the usual. It is sent just ahead of
+// the message, on the same connection and naming the message it is
+// for, and the controls go back to normal so that a choice is never
+// carried over by accident.
+let cloudValueRequests = 0;
+
+function sendCloudValue(text) {
+  const value = document.getElementById("chat-value");
+  const urgent = document.getElementById("chat-urgent");
+
+  if (!value || !urgent) return;
+  if (value.value === "normal" && !urgent.checked) return;
+
+  cloudValueRequests += 1;
+  send({
+    type: "cloud",
+    action: "next",
+    request: "v" + cloudValueRequests,
+    value: value.value,
+    urgent: urgent.checked,
+    text,
+  });
+  value.value = "normal";
+  urgent.checked = false;
+}
+
 // Typed text is a message for Freya unless it starts with a slash, in
 // which case it is one of her commands. Opening the Console tab is the
 // one command handled here in the window.
@@ -218,6 +269,7 @@ function submitText(text) {
   }
 
   if (!isCommand(text)) {
+    sendCloudValue(text);
     return send({ type: "say", text });
   }
 
@@ -1937,9 +1989,13 @@ function wireAvatar() {
 // -- images ----------------------------------------------------------
 
 function addImage(image, newest) {
+  // An image listed in the hello may also arrive as a live event
+  // when it was finished just as the window joined.
+  if (gallery.querySelector(`[data-image-id="${CSS.escape(image.id)}"]`)) return;
   $("gallery-empty").hidden = true;
 
   const card = element("figure", "card");
+  card.dataset.imageId = image.id;
   const picture = element("img");
   picture.src = "/images/" + encodeURIComponent(image.id);
   picture.alt = image.prompt;
@@ -2025,6 +2081,12 @@ function showStatus(next) {
     status.model === "healthy" ? "good" : "bad",
   );
 
+  setPill(
+    "pill-voice",
+    status.voice === "ready" ? "Voice ready" : "Voice unavailable",
+    status.voice === "ready" ? "good" : "warn",
+  );
+
   const images = {
     healthy: ["Images ready", "good"],
     startable: ["Images on demand", "warn"],
@@ -2074,6 +2136,7 @@ function connect() {
       showVoice(event.voice);
       showAvatar(event.avatar);
       showStatus(event.status);
+      window.dispatchEvent(new Event("freya-connected"));
       messages.scrollTop = messages.scrollHeight;
       consoleOutput.scrollTop = consoleOutput.scrollHeight;
       return;
@@ -2143,6 +2206,7 @@ function showView(name) {
     view.classList.toggle("is-active", view.id === "view-" + name);
   });
   if (name === "images") $("images-badge").hidden = true;
+  window.dispatchEvent(new CustomEvent("freya-view", {detail: name}));
   const input = $(VIEW_INPUT[name] || (name === "memory" ? "memory-query" : ""));
   if (input) input.focus();
 }

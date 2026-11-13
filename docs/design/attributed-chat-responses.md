@@ -1,0 +1,15 @@
+# Attributed assisting-model responses
+
+Owner UI direction, 2026-10-09; implementation label NEW-LC11. This changes the earlier cloud-design presentation rule: an assisting model's answer is visible under its own source name, followed by Freya's interpretation. The owner still addresses Freya. No Foundation requirement or ADR is amended.
+
+`Dispatcher` accepts an optional `on_reply(route, reply)` display observer, called once after successful sending and accounting. The trusted route's `source_name` supplies the label; answer prose cannot choose its identity. `build_cloud_delegation(..., publish=...)` attaches the observer to the existing Claude route, and the launcher passes `EVENTS.publish`. Display failure cannot trigger resending. Provider failures do not create successful source-answer cards.
+
+The additive `source_response` event contains a response identifier, route/source metadata, text and an explicit shortened flag. It is replayed with the current process's chat history. This is not durable conversation storage or a new multi-user event authorization model. Existing clients that ignore the event retain their normal replies. The current alpha remains a fixed-owner gateway.
+
+The chat shows the attributed original answer and subsequent ordinary Freya chunks as separate messages. It does not synthesize a second reply or make an extra model call merely to display an answer. The future assisted-task workflow must feed the worker result back to Freya for her interpretation; it is not yet wired into ordinary turns, and the Codex/OpenAI route remains unbuilt.
+
+The renderer supports headings, bullets, bold text, code blocks, Markdown links and images. Images, direct HTTPS MP4/WebM/Ogg links and supported YouTube links get media cards. External media loads only after a click, has no automatic playback, and is not fetched on history replay. After twelve cards, further media remains accessible as source links. Approved local `/images/<id>` references use the existing authenticated gallery route; arbitrary local files are not served.
+
+Raw model HTML is displayed as text. Script, data, file, credential-bearing and private/nonnormal media URLs are refused. External images and direct videos render in a separate authenticated, opaque sandbox frame with scripts disabled; the main chat's own image, media and connection restrictions stay intact. The server builds only a narrow escaped template and never downloads the external media. Public DNS names and redirects are not independently attested, so this is a constrained browser display, not a claim of general egress containment. YouTube uses the existing permitted privacy-enhanced embed host after a click. Unsupported video hosts remain source links.
+
+Verified with synthetic publisher/dispatch integration, loopback gateway checks, injection cases, replay, and a headless browser whose external requests were intercepted. Real cloud exchange, external playback, persistent history, voice synthesis of source responses and the automatic Codex assistance loop remain unverified or unimplemented. No local inference or benchmark operation was performed.

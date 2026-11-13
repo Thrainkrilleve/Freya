@@ -36,6 +36,7 @@ import soundfile as sf
 from freya.speech.chatterbox_engine import ChatterboxEngine
 from freya.speech.engines import ROLE_CLONE, ROLE_DESIGN, ROLE_PRESET
 from freya.speech.helper import DATA_DIR
+from freya.storage.locations import store_path
 from freya.speech.kokoro_engine import KokoroEngine
 from freya.speech.qwen_engine import QwenEngine
 from freya.speech.references import MAX_SECONDS, ReferenceStore
@@ -412,7 +413,7 @@ def main():
         )
 
     out_dir = arguments.out or (
-        DATA_DIR / "voice_benchmarks" / time.strftime("%Y%m%d-%H%M%S")
+        store_path("voice_benchmarks") / time.strftime("%Y%m%d-%H%M%S")
     )
     out_dir.mkdir(parents=True, exist_ok=True)
 

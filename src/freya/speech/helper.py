@@ -12,15 +12,17 @@ import numpy as np
 import psutil
 import soundfile as sf
 
+from freya.child_environment import child_environment
 from freya.speech.engines import (
     STATUS_NOT_INSTALLED,
     STATUS_READY,
     SpeechEngine,
     SpeechError,
 )
+from freya.paths import data_dir
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 WORKERS_DIR = Path(__file__).resolve().parent / "workers"
 
 # Each helper engine lives in its own Python environment here, because
@@ -86,12 +88,13 @@ class HelperProcess:
             self._log_path.parent.mkdir(parents=True, exist_ok=True)
             log = open(self._log_path, "w", encoding="utf-8")
 
-        environment = {
-            **os.environ,
-            "PYTHONIOENCODING": "utf-8",
-            "PYTHONUNBUFFERED": "1",
-            **self._environment,
-        }
+        environment = child_environment(
+            {
+                "PYTHONIOENCODING": "utf-8",
+                "PYTHONUNBUFFERED": "1",
+                **self._environment,
+            }
+        )
         # The helper must use its own environment's packages only.
         environment.pop("PYTHONPATH", None)
         environment.pop("PYTHONHOME", None)

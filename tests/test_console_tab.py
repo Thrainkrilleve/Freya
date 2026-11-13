@@ -8,7 +8,11 @@ from freya.console_tee import ConsoleOutput, ConsoleTee
 from freya.events import EventBus
 from freya.main import normalize_command
 from freya.settings import Settings
-from freya.window_commands import CommandContext, run_window_command
+from freya.window_commands import (
+    CommandContext,
+    run_shared_command,
+    run_window_command,
+)
 
 
 @pytest.fixture
@@ -47,6 +51,39 @@ def test_tee_passes_text_through_and_announces_whole_lines(bus):
     tee.write("no newline at the end")
     tee.finish()
     assert output.history()[-1] == "no newline at the end"
+
+
+def test_a_window_joining_mid_line_sees_each_console_line_once(bus):
+    # The hello's console snapshot and the subscription are one step,
+    # and the tee records and announces a line in that same step, so a
+    # line can be in the snapshot or among the live events, never both.
+    import threading
+
+    output = ConsoleOutput(bus)
+    live = []
+    joined = threading.Event()
+    results = {}
+
+    def announcer():
+        for n in range(200):
+            output.add_line(f"line {n}")
+            if n == 50:
+                joined.set()
+
+    def joiner():
+        joined.wait(5)
+        results["history"], results["console"] = bus.subscribe_with_history(
+            live.append, snapshot=output.history,
+        )
+
+    threads = [threading.Thread(target=announcer), threading.Thread(target=joiner)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(10)
+
+    seen = results["console"] + [e["text"] for e in live if e["type"] == "console"]
+    assert seen == [f"line {n}" for n in range(200)]
 
 
 def test_tee_works_with_no_underlying_stream(bus):
@@ -176,6 +213,35 @@ def test_mute_interrupt_and_window(context, bus):
     assert notices(bus)[-1] == "Freya's window is open."
 
 
+def test_another_threads_output_is_not_shown_as_the_commands_answer(context, bus, capsys):
+    import threading
+
+    # The listener thread prints while a command runs (a wake word
+    # heard, the microphone muted). That line belongs to the console,
+    # not to the chat as the command's answer.
+    started = threading.Event()
+    printed = threading.Event()
+
+    def listener():
+        started.wait(5)
+        print("My window closed, so I have muted the microphone.")
+        printed.set()
+
+    class Voice:
+        def interrupt(self):
+            started.set()
+            printed.wait(5)
+
+    context.voice = Voice()
+    other = threading.Thread(target=listener)
+    other.start()
+    run_window_command("/interrupt", context)
+    other.join(5)
+
+    assert notices(bus) == ["Speech playback interrupted."]
+    assert "muted the microphone" in capsys.readouterr().out
+
+
 def test_image_command_runs_generation_without_a_chat_notice(context, bus):
     run_window_command("/image a red fox in snow", context)
     run_window_command("/image", context)
@@ -216,3 +282,66 @@ def test_quit_closes_freya_only_when_there_is_no_terminal(
 
     assert context.quits == [1]
     assert notices(bus)[-1] == "Closing down."
+
+
+# The commands the terminal shares with the window.
+
+
+@pytest.mark.parametrize(
+    "line",
+    [
+        "hello Freya",
+        "exit",
+        "/terminal",
+        "/talk",
+        "/voice-file C:\\a.wav",
+        "/memories",
+        "/frobnicate",
+        "",
+    ],
+)
+def test_lines_the_terminal_keeps_are_not_shared(context, line):
+    assert run_shared_command(line, context) is None
+    assert context.voice.interrupted == 0
+    assert context.images == []
+
+
+def test_shared_commands_act_the_same_from_the_terminal(context, capsys):
+    assert run_shared_command("/interrupt", context) is True
+    assert context.voice.interrupted == 1
+
+    assert run_shared_command("/mute", context) is True
+    assert context.listener.muted is True
+
+    assert run_shared_command("/IMAGE a red fox", context) is False
+    assert context.images == ["a red fox"]
+
+    assert run_shared_command("/window", context) is True
+    assert run_shared_command("/help", context) is True
+    assert run_shared_command("/folders", context) is True
+
+    printed = capsys.readouterr().out
+    assert "Freya's window is open." in printed
+    assert "Commands: /names" in printed
+    assert "Folders cannot be opened from here." in printed
+
+
+def test_the_terminal_loop_uses_the_shared_commands():
+    import freya.main
+
+    # The loop reaches the shared handler and no longer imports the
+    # listening handler for itself (a source-text check would break
+    # the moment someone legitimately named that function in a
+    # comment or a string).
+    assert freya.main.run_shared_command is run_shared_command
+    assert not hasattr(freya.main, "handle_listening_command")
+
+
+def test_backslash_forms_of_the_shared_commands_are_normalised():
+    # The backslash table and the shared handler must agree, or
+    # \help works in the window and not in the terminal.
+    assert normalize_command("\\help") == "/help"
+    assert normalize_command("\\terminal") == "/terminal"
+    assert normalize_command("\\console") == "/console"
+    assert normalize_command("\\interrupt") == "/interrupt"
+    assert normalize_command("\\nothing") == "\\nothing"

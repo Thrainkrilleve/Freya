@@ -593,6 +593,33 @@ def test_page_never_calls_a_blend_cloning_or_design(voice_gateway):
     assert "not designing" in blend
 
 
+def test_cloud_answers_go_only_to_the_window_that_asked(gateway, freya):
+    asked = []
+
+    def cloud_request(message):
+        asked.append(message)
+        return {"state": {"sent_count": 1}, "sent": [{"text": "a private brief"}]}
+
+    gateway._actions.cloud_request = cloud_request
+    cookie = sign_in(gateway)
+
+    with open_socket(gateway, cookie) as asking, open_socket(gateway, sign_in(gateway)) as other:
+        receive(asking, "hello")
+        receive(other, "hello")
+
+        asking.send(json.dumps({"type": "cloud", "action": "sent", "request": "c1"}))
+        answer = receive(asking, "cloud")
+
+        assert answer["request"] == "c1"
+        assert answer["sent"][0]["text"] == "a private brief"
+        assert asked[0]["action"] == "sent"
+
+        freya.bus.publish("notice", text="after")
+        assert receive(other, "notice")["text"] == "after"
+
+    assert all(event["type"] != "cloud" for event in freya.bus.history())
+
+
 def test_memory_answers_go_only_to_the_window_that_asked(gateway, freya):
     asked = []
 

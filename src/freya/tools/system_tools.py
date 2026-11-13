@@ -4,6 +4,7 @@ import subprocess
 
 import psutil
 
+from freya.child_environment import child_environment
 from freya.core.capabilities import (
     CapabilityDefinition,
 )
@@ -236,6 +237,7 @@ def get_gpu_info():
         text=True,
         check=True,
         timeout=10,
+        env=child_environment(),
         # Without this, a Freya running without a console of her own
         # flashes a terminal window each time the GPU is queried.
         creationflags=getattr(

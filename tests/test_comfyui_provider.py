@@ -1,5 +1,7 @@
 import urllib.error
 
+import sys
+
 import pytest
 
 from freya.control_plane import build_local_control_plane
@@ -244,6 +246,7 @@ def make_install(tmp_path, monkeypatch, with_extras=True):
     return install, local, roaming
 
 
+@pytest.mark.skipif(sys.platform != "win32", reason="the plan quotes a Windows path to ComfyUI's main.py")
 def test_server_plan_uses_the_desktop_install(tmp_path, monkeypatch):
     install, local, roaming = make_install(tmp_path, monkeypatch)
 

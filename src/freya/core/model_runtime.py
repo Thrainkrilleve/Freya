@@ -4,6 +4,19 @@ from typing import Callable, Iterator, List, Optional
 LLM_CHAT = "llm.chat"
 LLM_CHAT_STREAM = "llm.chat_stream"
 LLM_EMBED = "llm.embed"
+LLM_BACKGROUND_CHAT = "llm.background.chat"
+LLM_BACKGROUND_CHAT_STREAM = "llm.background.chat_stream"
+
+# The kinds of model work a caller can ask for. A caller names the
+# role; which capability, provider, and model serve it is decided
+# where the control plane is assembled.
+ROLE_CONVERSATION = "conversation"
+ROLE_BACKGROUND = "background"
+
+DEFAULT_ROUTES = {
+    ROLE_CONVERSATION: (LLM_CHAT, LLM_CHAT_STREAM),
+    ROLE_BACKGROUND: (LLM_CHAT, LLM_CHAT_STREAM),
+}
 
 
 class ModelRuntimeUnavailable(RuntimeError):
@@ -20,21 +33,36 @@ class ModelRuntime:
     Every request goes through the capability broker, so it is subject
     to policy, provider availability, and audit like any other
     capability. Nothing here knows which provider serves the request.
+
+    `routes` maps a role to its (chat, streamed chat) capability
+    names. A role left out is served like the conversation.
     """
 
     def __init__(
         self,
         broker,
         refresh_health: Optional[Callable[[], None]] = None,
+        routes=None,
     ):
         self._broker = broker
         self._refresh_health = refresh_health
+        self._routes = {**DEFAULT_ROUTES, **(routes or {})}
 
-    def chat(self, messages, **options) -> str:
-        return self._invoke(LLM_CHAT, messages, **options)
+    def _route(self, role):
+        if role not in self._routes:
+            raise ValueError(f"Unknown model role: {role!r}")
+        return self._routes[role]
 
-    def chat_stream(self, messages, **options) -> Iterator[str]:
-        chunks = self._invoke(LLM_CHAT_STREAM, messages, **options)
+    def chat(self, messages, role=ROLE_CONVERSATION, **options) -> str:
+        return self._invoke(self._route(role)[0], messages, **options)
+
+    def chat_stream(
+        self,
+        messages,
+        role=ROLE_CONVERSATION,
+        **options,
+    ) -> Iterator[str]:
+        chunks = self._invoke(self._route(role)[1], messages, **options)
 
         try:
             yield from chunks

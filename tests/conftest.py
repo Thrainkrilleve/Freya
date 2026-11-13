@@ -1,5 +1,6 @@
 import pytest
 
+from freya.config import MODEL
 from freya.core.model_runtime import configure_model_runtime
 
 
@@ -10,7 +11,7 @@ class FakeOllama:
     """
 
     def __init__(self):
-        self.installed = ["gpt-oss:20b", "nomic-embed-text:latest"]
+        self.installed = [MODEL, "gpt-oss:20b", "nomic-embed-text:latest"]
         self.reachable = True
         self.calls = []
         self.reply = "Hello from the fake model."
