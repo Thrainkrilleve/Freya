@@ -59,18 +59,28 @@ class SqlitePolicyEngine:
         subject = self._normalize(subject)
         action = self._normalize(action)
 
-        revision, grant_epoch = self.state()
+        # The revision recorded with the decision must be the one the
+        # rules were read under. The two are separate reads on a shared
+        # connection, and a rule change (BEGIN IMMEDIATE) can land in
+        # between, so the state is read on both sides and the rules
+        # read again if it moved. Three tries cover any realistic
+        # burst of owner changes; the last read stands either way.
+        for _ in range(3):
+            revision, grant_epoch = self.state()
 
-        rules = self._store.execute(
-            """
-            SELECT effect, reason
-            FROM policy_rule
-            WHERE subject IN (?, ?)
-              AND capability IN (?, ?)
-            ORDER BY rule_id
-            """,
-            (subject, ANY, action, ANY),
-        ).fetchall()
+            rules = self._store.execute(
+                """
+                SELECT effect, reason
+                FROM policy_rule
+                WHERE subject IN (?, ?)
+                  AND capability IN (?, ?)
+                ORDER BY rule_id
+                """,
+                (subject, ANY, action, ANY),
+            ).fetchall()
+
+            if self.state() == (revision, grant_epoch):
+                break
 
         denies = [r for r in rules if r["effect"] == "deny"]
         allows = [r for r in rules if r["effect"] == "allow"]

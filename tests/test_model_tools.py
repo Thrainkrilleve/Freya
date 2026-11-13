@@ -3,7 +3,7 @@ import json
 import pytest
 
 from freya.control_plane import build_local_control_plane
-from freya.core.assistant import MAX_TOOL_ROUNDS, FreyaAssistant
+from freya.core.assistant import MAX_TOOL_CALLS, MAX_TOOL_ROUNDS, FreyaAssistant
 from freya.core.capabilities import CapabilityDefinition, CapabilityStatus
 from freya.memory import memory_manager
 from freya.tools.model_tools import (
@@ -348,10 +348,11 @@ def test_assistant_runs_requested_tool_and_answers_from_its_result(
             {"function": {"name": "test_thermometer", "arguments": {}}}
         ],
     }
-    assert followup[-1] == {
-        "role": "tool",
-        "tool_name": "test_thermometer",
-        "content": '{"temperature_c": 41}',
+    assert followup[-1]["role"] == "tool"
+    assert followup[-1]["tool_name"] == "test_thermometer"
+    assert json.loads(followup[-1]["content"]) == {
+        "temperature_c": 41,
+        "_context": {"source": "tool:test_thermometer", "trust": "untrusted-tool-result", "truncated": False},
     }
     assert [r["outcome"] for r in audit_rows(plane, "test.thermometer")] == [
         None,
@@ -382,10 +383,9 @@ def test_assistant_can_use_several_tools_in_one_turn(
     followup = stream_calls(fake_ollama)[1][2]
 
     assert reply.strip() == "Both checked."
-    assert [m["content"] for m in followup if m["role"] == "tool"] == [
-        '{"a": 1}',
-        '{"b": 2}',
-    ]
+    results = [json.loads(m["content"]) for m in followup if m["role"] == "tool"]
+    assert [{key: value for key, value in result.items() if key != "_context"} for result in results] == [{"a": 1}, {"b": 2}]
+    assert all(result["_context"]["trust"] == "untrusted-tool-result" for result in results)
 
 
 def test_assistant_tells_the_model_when_a_tool_is_refused(
@@ -401,9 +401,9 @@ def test_assistant_tells_the_model_when_a_tool_is_refused(
     tool_message = stream_calls(fake_ollama)[1][2][-1]
 
     assert reply.strip() == "I can't do that."
-    assert json.loads(tool_message["content"]) == {
-        "error": "That tool is not available."
-    }
+    result = json.loads(tool_message["content"])
+    assert result["error"] == "That tool is not available."
+    assert result["_context"]["trust"] == "untrusted-tool-result"
 
 
 def test_assistant_stops_a_model_that_keeps_calling_tools(
@@ -439,3 +439,116 @@ def test_assistant_without_a_tool_host_offers_no_tools(
 
     assert reply.strip() == "Hello from the fake model."
     assert "tools" not in stream_calls(fake_ollama)[0][4]
+
+
+def test_a_large_batch_cannot_bypass_the_total_call_limit(
+    assistant, plane, fake_ollama
+):
+    runs = []
+    add_tool(plane, "test.batch", lambda: runs.append(1) or {"ok": True})
+    fake_ollama.stream_script = [
+        [("test_batch", {})] * (MAX_TOOL_CALLS + 4),
+        "Some checks could not be completed.",
+    ]
+
+    list(assistant.respond_stream("Check everything."))
+
+    assert len(runs) == MAX_TOOL_CALLS
+    followup = stream_calls(fake_ollama)[1]
+    assert "tools" not in followup[4]
+    results = [m for m in followup[2] if m["role"] == "tool"]
+    assert len(results) == MAX_TOOL_CALLS + 4
+    assert all("budget" in json.loads(m["content"])["error"] for m in results[-4:])
+
+
+def test_call_budget_is_shared_across_rounds_and_reset_each_turn(
+    assistant, plane, fake_ollama
+):
+    runs = []
+    add_tool(plane, "test.batch", lambda: runs.append(1) or {"ok": True})
+    fake_ollama.stream_script = [
+        [("test_batch", {})] * (MAX_TOOL_CALLS - 1),
+        [("test_batch", {})] * 3,
+        "Finished the allowed checks.",
+        [("test_batch", {})],
+        "Checked again.",
+    ]
+
+    list(assistant.respond_stream("Check everything."))
+    assert len(runs) == MAX_TOOL_CALLS
+    list(assistant.respond_stream("Check once more."))
+    assert len(runs) == MAX_TOOL_CALLS + 1
+
+
+def test_refused_requests_also_consume_the_attempt_budget(
+    assistant, plane, fake_ollama
+):
+    runs = []
+    add_tool(plane, "test.actual", lambda: runs.append(1) or {"ok": True})
+    fake_ollama.stream_script = [
+        [("unknown", {})] * MAX_TOOL_CALLS,
+        [("test_actual", {})],
+        "I could not complete the checks.",
+    ]
+
+    list(assistant.respond_stream("Keep checking."))
+
+    assert runs == []
+    assert "tools" not in stream_calls(fake_ollama)[1][4]
+    last_result = stream_calls(fake_ollama)[2][2][-1]
+    assert "budget" in json.loads(last_result["content"])["error"]
+
+
+def test_final_round_cannot_execute_unsolicited_tools(
+    assistant, plane, fake_ollama
+):
+    runs = []
+    add_tool(plane, "test.loop", lambda: runs.append(1) or {"again": True})
+    fake_ollama.stream_script = [[("test_loop", {})]] * (MAX_TOOL_ROUNDS + 1)
+
+    reply = "".join(assistant.respond_stream("Keep checking."))
+
+    assert len(runs) == MAX_TOOL_ROUNDS
+    assert "tool limit" in reply
+    assert "not completed" in reply
+    assert "tools" not in stream_calls(fake_ollama)[-1][4]
+
+
+def test_model_without_a_tool_host_cannot_trigger_unsolicited_calls(
+    plane, fake_ollama, tmp_path, monkeypatch
+):
+    monkeypatch.setattr(memory_manager, "DATA_DIR", tmp_path)
+    monkeypatch.setattr(memory_manager, "DATABASE_PATH", tmp_path / "memory.db")
+    assistant = FreyaAssistant()
+    fake_ollama.stream_script = [[("system_cpu", {})], "I could not check that."]
+
+    reply = "".join(assistant.respond_stream("Check the processor."))
+
+    assert "could not check" in reply
+    result = stream_calls(fake_ollama)[1][2][-1]
+    assert "not run" in json.loads(result["content"])["error"]
+
+
+def test_a_reply_with_no_words_is_said_to_be_one_and_kept(assistant, fake_ollama):
+    from freya.core.assistant import EMPTY_REPLY_NOTICE
+
+    fake_ollama.stream_script = [""]
+
+    reply = "".join(assistant.respond_stream("Plan the whole week for me."))
+
+    assert reply.strip() == EMPTY_REPLY_NOTICE
+    # The question does not vanish from the conversation.
+    assert assistant.messages[-2:] == [
+        {"role": "user", "content": "Plan the whole week for me."},
+        {"role": "assistant", "content": EMPTY_REPLY_NOTICE},
+    ]
+
+
+def test_no_words_after_a_tool_is_also_said(assistant, fake_ollama):
+    from freya.core.assistant import EMPTY_REPLY_NOTICE
+
+    fake_ollama.stream_script = [[("system_cpu", {})], ""]
+
+    reply = "".join(assistant.respond_stream("How busy is the processor?"))
+
+    assert reply.strip() == EMPTY_REPLY_NOTICE

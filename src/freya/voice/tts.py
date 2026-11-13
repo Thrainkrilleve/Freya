@@ -14,8 +14,9 @@ SAMPLE_RATE = 24000
 
 
 class FreyaVoice:
-    def __init__(self):
-        self.enabled = VOICE_ENABLED
+    def __init__(self, enabled=None):
+        self.enabled = VOICE_ENABLED if enabled is None else enabled
+        self.startup_error = None
         self.voice = FREYA_VOICE
         self.speed = VOICE_SPEED
         # How loud speech is played, from 0 (silent) to 1 (as generated).
@@ -33,12 +34,24 @@ class FreyaVoice:
         # listen; the voice does not know or care what does.
         self.speech_listener = None
 
+        # When a GUI client plays Freya's voice (see
+        # freya.gateway.speech_relay), speech goes to it instead of to
+        # this computer's speakers. Unset, she plays it herself.
+        self.remote_playback = None
+
         if self.enabled:
             print("Loading Freya voice engine...")
-            self.pipeline = KPipeline(
-                lang_code="a",
-                repo_id="hexgrad/Kokoro-82M",
-            )
+            try:
+                self.pipeline = KPipeline(
+                    lang_code="a",
+                    repo_id="hexgrad/Kokoro-82M",
+                )
+            except Exception as exc:
+                # Speech is optional: a missing model must not prevent chat.
+                self.enabled = False
+                self.startup_error = str(exc)
+                print("Voice unavailable; text chat remains available.")
+                return
 
             self._worker = threading.Thread(
                 target=self._speech_worker,
@@ -140,6 +153,27 @@ class FreyaVoice:
         interrupted = False
 
         try:
+            relay = getattr(self, "remote_playback", None)
+
+            if relay is not None and relay.active:
+                # The client gets the sound at full level and is told the
+                # volume, so a quiet voice still moves a face fully. This
+                # waits until the client says it has finished, which is
+                # what keeps the microphone ignoring her own voice.
+                outcome = relay.play(
+                    audio,
+                    SAMPLE_RATE,
+                    self.volume,
+                    self._interrupt_event,
+                )
+
+                if outcome != "no-client":
+                    # Played, stopped, or lost with the client. A lost
+                    # sentence is not repeated: part of it may have been
+                    # heard.
+                    interrupted = outcome == "interrupted"
+                    return
+
             volume = self.volume
 
             if volume != 1.0:

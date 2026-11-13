@@ -10,6 +10,7 @@ import threading
 
 from freya.core.assistant import FreyaAssistant
 
+from freya.core.model_runtime import ROLE_BACKGROUND
 from freya.core.model_runtime import ModelRuntimeUnavailable
 
 from freya.gpu.resource_manager import GPUResourceManager
@@ -17,7 +18,11 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 
 from freya.control_plane import build_local_control_plane
-from freya.config import OPEN_WINDOW
+from freya.delegation.service import build_cloud_delegation, build_turn_delegation
+from freya.storage.backup import back_up_on_close
+from freya.config import OPEN_WINDOW, MODEL
+from freya.config import COMFYUI_AT_START
+from freya.file_access import FOLDER_COMMANDS, FileAccess
 from freya.hands_free import LISTENING_COMMANDS
 from freya.hands_free import describe_listening
 from freya.hands_free import handle_listening_command
@@ -30,13 +35,16 @@ from freya.image.gallery import ImageGallery
 from freya.window import WINDOW_COMMAND
 from freya.window import FreyaWindow
 from freya.window import WindowActions
+from freya.media.setup import build_media_service
 from freya.window import build_status
+from freya.unreal_client import UnrealClient, configured_client
 from freya.console_tee import ConsoleOutput
 from freya.window_commands import CommandContext
 from freya.window_commands import run_window_command
 from freya.speech.setup import build_voice_studio
 
 from freya.spatial_avatar.service import AvatarService
+from freya.media.service import MEDIA_CAPABILITIES
 
 from freya.core.capabilities import LOCAL_OWNER
 from freya.single_instance import claim as claim_single_instance
@@ -77,7 +85,7 @@ COMMANDS = (
 
     IMAGE_COMMAND,
 
-) + LISTENING_COMMANDS + (WINDOW_COMMAND,)
+) + LISTENING_COMMANDS + FOLDER_COMMANDS + (WINDOW_COMMAND,)
 
 
 
@@ -1028,13 +1036,87 @@ def main(window_only=False):
 
     ).start()
 
+    # ComfyUI is started now, beside the model warm-up, so the first
+    # picture does not wait a minute for it. It loads no image model
+    # until a picture is asked for.
+    if COMFYUI_AT_START:
+
+        threading.Thread(
+
+            target=control_plane.start_image_backend_early,
+
+            name="FreyaImageBackendStart",
+
+            daemon=True,
+
+        ).start()
+
 
 
     freya = FreyaAssistant(
 
         tool_host=control_plane.model_tools,
 
+        broker=control_plane.broker,
+
     )
+
+    # The owner's cloud settings and the one gate a brief could leave
+    # by. Assembling it sends nothing and allows nothing: no provider
+    # is switched on, no policy rule allows a cloud route, and no
+    # route has a usage limit until the owner sets them. Nothing in a
+    # turn uses it yet; this is here so the Cloud tab works.
+    try:
+
+        cloud = build_cloud_delegation(
+
+            control_plane,
+
+            lambda: [
+
+                (row[0], row[3])
+
+                for row in freya.memory.get_all_memories()
+
+            ],
+
+            publish=EVENTS.publish,
+
+        )
+
+    except Exception as exc:
+
+        cloud = None
+
+        print(f"Cloud settings are unavailable: {exc}")
+
+    # Lets the model hand one piece of work to Claude during a turn.
+    # The tool is offered only while a provider is switched on and a
+    # window is open to ask the owner in. The window is made further
+    # on, so it is looked up when a question is asked.
+    window = None
+
+    if cloud is not None:
+
+        try:
+
+            freya.delegation = build_turn_delegation(
+
+                control_plane,
+
+                cloud,
+
+                lambda prompt: (
+                    window.ask_owner(prompt) if window is not None else None
+                ),
+
+                lambda: window is not None and window.has_window(),
+
+            )
+
+        except Exception as exc:
+
+            print(f"Handing work to an outside model is unavailable: {exc}")
 
     voice = FreyaVoice()
 
@@ -1075,6 +1157,13 @@ def main(window_only=False):
     stt = load_speech_recognition()
 
     settings = Settings()
+    # The folders the owner has opened for Freya to read. None
+    # to start, and then the file tools are not offered at all.
+    file_access = FileAccess(
+        settings,
+        control_plane.refresh_file_reader,
+    )
+    control_plane.register_file_reader(file_access.reader)
 
     gate = TurnGate()
 
@@ -1113,7 +1202,7 @@ def main(window_only=False):
 
     print("Freya online.")
 
-    print("Voice: enabled")
+    print("Voice: enabled" if voice.enabled else "Voice: unavailable (text chat ready)")
 
     print("Streaming: enabled")
 
@@ -1251,6 +1340,8 @@ def main(window_only=False):
 
             control_plane,
 
+            voice=voice,
+
         )
 
 
@@ -1282,6 +1373,32 @@ def main(window_only=False):
 
 
         publish_status()
+
+
+
+    def client_closed(kind):
+
+        # The Unreal window has gone. Freya keeps running, but with
+
+        # the microphone muted, so it is never open with nothing on
+
+        # screen to show it. It stays muted until the owner unmutes.
+
+        if kind == "native" and listener is not None and listener.running:
+
+            if not listener.muted:
+
+                listener.mute()
+
+                print(
+
+                    "\nFreya: My window closed, so I have muted the "
+
+                    "microphone. Use /unmute to turn it back on."
+
+                )
+
+            publish_status()
 
 
 
@@ -1434,6 +1551,40 @@ def main(window_only=False):
     )
 
 
+    def media_chat(messages):
+        with gate.turn():
+            return control_plane.model_runtime.chat(
+                messages,
+                role=ROLE_BACKGROUND,
+            )
+
+    media = None
+    try:
+        media = build_media_service(
+            control_plane.broker,
+            chat=media_chat,
+            model_name=MODEL,
+            speech_model=lambda: stt if stt is not None else None,
+            admission=gate.turn,
+            permissions=lambda: {
+                name: control_plane.policy.decide(LOCAL_OWNER.actor, name).allow
+                for name in MEDIA_CAPABILITIES
+            },
+        )
+        control_plane.register_media(media)
+        # Asked only while the owner has enabled it; otherwise every turn
+        # would make a refused request and tell the model about it.
+        freya.media_recall = lambda query: (
+            control_plane.broker.invoke("media.recall", query=query)
+            if control_plane.policy.decide(LOCAL_OWNER.actor, "media.recall").allow
+            else None
+        )
+    except Exception:
+        if media is not None:
+            media.stop()
+            media = None
+        print("Media could not start; chat remains available. See the media setup guide.")
+
     def command_from_window(text):
 
         with gate.turn():
@@ -1469,6 +1620,7 @@ def main(window_only=False):
                     publish_status=publish_status,
 
                     memory_command=freya.memory_command,
+                    folder_command=file_access.command,
 
                     request_quit=(
 
@@ -1503,6 +1655,13 @@ def main(window_only=False):
 
             memory_request=memory_from_window,
 
+            **(
+                {"cloud_request": cloud.window_request}
+                if cloud is not None else {}
+            ),
+
+            client_closed=client_closed,
+
             set_volume=volume_from_window,
 
             interrupt=voice.interrupt,
@@ -1519,6 +1678,10 @@ def main(window_only=False):
 
             voice_clip=voice_studio.clips.read,
 
+            media_request=media.handle if media else (lambda message: {"error": "Media is unavailable."}),
+            media_stream=media.stream if media else (lambda ticket, header: None),
+            media_download=media.download if media else (lambda identifier, kind: None),
+
             avatar_state=avatar.describe,
 
             avatar_request=avatar.handle,
@@ -1529,7 +1692,31 @@ def main(window_only=False):
 
     )
 
+    unreal = None
+
+
+
     if window.start():
+
+        # A client that asks to may play her voice in her place.
+
+        voice.remote_playback = window.speech
+
+        program = configured_client()
+
+
+
+        if program is not None:
+
+            unreal = UnrealClient(program)
+
+
+
+            if unreal.launch(window.port, window.new_pairing_key()):
+
+                print("Freya's Unreal window is starting.")
+
+
 
         if OPEN_WINDOW or window_only:
 
@@ -1632,6 +1819,8 @@ def main(window_only=False):
                 continue
 
 
+            if file_access.command(user_input):
+                continue
             if user_input.lower() == WINDOW_COMMAND:
 
                 print(f"\n{window.open()}\n")
@@ -2098,6 +2287,8 @@ def main(window_only=False):
 
         finished = window.stop()
 
+        finished = (media.stop() if media else True) and finished
+
         finished = gate.drain(SHUTDOWN_WAIT_SECONDS) and finished
 
         if listener is not None:
@@ -2138,9 +2329,28 @@ def main(window_only=False):
 
         avatar.stop()
 
+        if unreal is not None:
+
+            unreal.stop()
+
+
+
         console_output.uninstall()
 
         voice.shutdown()
+
+        # Copy the databases and settings to the other drive. It runs
+        # beside the rest of closing and is given a short time: a slow
+        # or missing drive must not keep Freya from closing.
+        backing_up = threading.Thread(target=back_up_on_close, daemon=True)
+
+        backing_up.start()
+
+        backing_up.join(timeout=20)
+
+        if cloud is not None:
+
+            cloud.close()
 
         control_plane.close()
 

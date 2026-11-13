@@ -23,6 +23,15 @@ from freya.spatial_avatar.renderers.tk_placeholder import (
 )
 
 
+def on_windows() -> bool:
+    """
+    Whether this is the platform the web view window is built for. A
+    function, so a test can stand in for it without changing `os.name`
+    for the whole process (which switches `pathlib` to Windows paths).
+    """
+    return os.name == "nt"
+
+
 # The model file to draw, given by whoever starts the overlay.
 MODEL_VARIABLE = "FREYA_AVATAR_MODEL"
 
@@ -245,7 +254,7 @@ class WebRenderer(TkPlaceholderRenderer):
 
     @classmethod
     def available(cls):
-        if os.name != "nt":
+        if not on_windows():
             return "The 3D avatar window is only built for Windows so far."
 
         problem = super().available()

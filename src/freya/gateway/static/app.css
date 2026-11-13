@@ -14,6 +14,19 @@
   color-scheme: dark;
 }
 
+.media-scroll { overflow: auto; padding: 18px; height: 100%; }
+.media-layout { display: grid; grid-template-columns: minmax(260px, 1fr) minmax(350px, 2fr); gap: 18px; }
+.media-scroll .panel { margin: 14px 0; }
+.media-scroll label { display: block; margin: 8px 0; }
+.media-scroll input:not([type=checkbox]), .media-scroll textarea { width: 100%; padding: 8px; border: 1px solid var(--line); background: var(--bg); border-radius: 6px; color: var(--text); }
+.media-scroll .check { display: inline-flex; gap: 8px; }
+.media-row { padding: 10px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.media-row button, .media-row a { margin: 5px 8px 0 0; }
+#media-player video, #media-player audio { width: 100%; }
+#media-player iframe { width: 100%; min-height: 270px; aspect-ratio: 16/9; border: 0; }
+#media-text { max-height: 420px; overflow: auto; white-space: pre-wrap; }
+@media (max-width: 800px) { .media-layout { grid-template-columns: 1fr; } .tabs { flex-wrap: wrap; } }
+
 * {
   box-sizing: border-box;
 }
@@ -688,6 +701,57 @@ button:disabled {
   font-size: 12px;
 }
 
+.ask {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 20px;
+  color: var(--text);
+  background: var(--panel-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.ask::backdrop {
+  background: rgba(8, 9, 13, 0.8);
+}
+
+.ask h2 {
+  margin: 0 0 12px;
+  font-size: 16px;
+}
+
+.ask-lines,
+.ask-matches {
+  margin: 0 0 12px;
+  padding-left: 18px;
+}
+
+.ask-matches {
+  color: var(--warn);
+}
+
+.ask-text {
+  margin: 0 0 16px;
+}
+
+.ask-text summary {
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.ask-text pre {
+  max-height: 260px;
+  overflow: auto;
+  margin: 8px 0 0;
+  padding: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
 .lightbox {
   position: fixed;
   inset: 0;
@@ -899,3 +963,19 @@ button:disabled {
 #memory-opened {
   margin-top: 16px;
 }
+
+
+/* Attributed assisting-model answers, followed by Freya's own reply. */
+.message.from-source { align-self: flex-start; border-color: #665094; }
+.message.from-source .who { color: #c6b2ed; }
+.rich-answer { display: block; white-space: normal; overflow-wrap: anywhere; }
+.rich-answer > div { white-space: pre-wrap; margin: 0.3em 0; }
+.rich-answer h2, .rich-answer h3, .rich-answer h4, .rich-answer h5 { font-size: 1.08em; margin: 0.8em 0 0.3em; }
+.rich-answer ul { margin: 0.4em 0; padding-left: 1.4em; }
+.rich-answer a { color: #a6caff; }
+.rich-answer pre { white-space: pre; overflow-x: auto; background: var(--panel-raised); padding: 12px; border-radius: 8px; }
+.answer-media { margin: 12px 0; padding: 10px; border: 1px solid var(--line); border-radius: 8px; }
+.answer-media figcaption { margin: 4px 0 8px; }
+.answer-media button, .answer-media a { margin-right: 12px; }
+.answer-media img { display: block; max-width: 100%; max-height: 420px; }
+.answer-media iframe { display: block; width: 100%; height: 240px; border: 0; border-radius: 6px; }

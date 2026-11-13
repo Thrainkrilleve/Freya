@@ -1,5 +1,6 @@
 import base64
 import hashlib
+from html.parser import HTMLParser
 import http.client
 import json
 import re
@@ -841,7 +842,28 @@ def test_policy_allows_the_import_map_by_hash_and_nothing_looser(gateway):
     cookie = sign_in(gateway)
     page, body = get(gateway, "/", cookie)
     policy = page.getheader("Content-Security-Policy")
-    inline = re.findall(r"<script(?![^>]*\bsrc=)[^>]*>(.*?)</script>", body.decode("utf-8"), re.S)
+    class InlineScripts(HTMLParser):
+        def __init__(self):
+            super().__init__()
+            self.scripts = []
+            self.in_inline_script = False
+
+        def handle_starttag(self, tag, attrs):
+            if tag == "script" and not any(name == "src" for name, _ in attrs):
+                self.in_inline_script = True
+                self.scripts.append("")
+
+        def handle_data(self, data):
+            if self.in_inline_script:
+                self.scripts[-1] += data
+
+        def handle_endtag(self, tag):
+            if tag == "script":
+                self.in_inline_script = False
+
+    parser = InlineScripts()
+    parser.feed(body.decode("utf-8"))
+    inline = parser.scripts
 
     # The page has exactly one inline script: the import map.
     assert len(inline) == 1
@@ -856,10 +878,14 @@ def test_policy_allows_the_import_map_by_hash_and_nothing_looser(gateway):
     assert directives["connect-src"] == "'self' blob:"
     assert directives["style-src"] == "'self'"
     assert directives["media-src"] == "'self'"
+    # The page may frame its own sandboxed media document (answer_media,
+    # which carries its own policy and the sandbox directive) and the
+    # one video host, and nothing else.
+    assert directives["frame-src"] == "'self' https://www.youtube-nocookie.com"
     assert policy == content_security_policy()
 
     for loose in ("unsafe-inline", "unsafe-eval", "data:", "http:", "https:", "*"):
-        assert loose not in policy, loose
+        assert loose not in policy.replace("https://www.youtube-nocookie.com", ""), loose
 
     # Every place the import map points to is a file the gateway serves.
     for target in json.loads(inline[0])["imports"].values():

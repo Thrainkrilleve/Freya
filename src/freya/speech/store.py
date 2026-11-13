@@ -5,6 +5,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from freya.storage.locations import store_path
 from typing import List, Optional
 
 import numpy as np
@@ -15,7 +16,7 @@ from freya.speech.engines import ROLES, SpeechError
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
 PROFILES_PATH = DATA_DIR / "voice_profiles.json"
-CLIPS_DIR = DATA_DIR / "voice_clips"
+CLIPS_DIR = store_path("voice_clips")
 
 RECORD_ID = re.compile(r"^[0-9a-f]{32}$")
 

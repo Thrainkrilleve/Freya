@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional
 
+from freya.child_environment import child_environment
 from freya.core.providers import ProviderHealth
 from freya.gateway.server import DEFAULT_PORT, Gateway
 from freya.providers.image.comfyui import COMFYUI_PROVIDER
@@ -54,12 +55,26 @@ class WindowActions:
     voice_request: Callable[[dict], dict] = lambda message: {}
     voice_clip: Callable[[str], Optional[bytes]] = lambda clip_id: None
 
+    # A GUI client of the given kind ("native" for a program Freya
+    # paired, such as the Unreal window) has disconnected.
+    client_closed: Callable[[str], None] = lambda kind: None
+
     # The Memory tab: a search of, or change to, what Freya has saved.
     # Returns what the tab should now show.
     memory_request: Callable[[dict], dict] = lambda message: {}
 
+    # The Cloud tab: the owner's choices about cloud models. Returns
+    # what the tab should now show.
+    cloud_request: Callable[[dict], dict] = lambda message: {
+        "error": "Cloud settings are unavailable.",
+    }
+
     # The Avatar tab: its current state, and a request made from it
     # (which returns the new state and an error message, if any).
+    media_request: Callable[[dict], dict] = lambda message: {"error": "Media is unavailable."}
+    media_stream: Callable[[str, Optional[str]], object] = lambda ticket, header: None
+    media_download: Callable[[str, str], object] = lambda media_id, kind: None
+
     avatar_state: Callable[[], dict] = lambda: {}
     avatar_request: Callable[[dict], dict] = lambda message: {}
     # An avatar model's file ("model") or thumbnail ("thumbnail"), as
@@ -67,7 +82,7 @@ class WindowActions:
     avatar_file: Callable[[str, str], Optional[tuple]] = lambda kind, model: None
 
 
-def build_status(listener, settings, control_plane) -> dict:
+def build_status(listener, settings, control_plane, voice=None) -> dict:
     """
     The few facts the window's status strip shows.
     """
@@ -94,6 +109,7 @@ def build_status(listener, settings, control_plane) -> dict:
         "model": providers.get(OLLAMA_PROVIDER).health.value,
         "images": images,
         "volume": getattr(settings, "voice_volume", 100),
+        **({"voice": "ready" if voice.enabled else "unavailable"} if voice is not None else {}),
     }
 
 
@@ -146,6 +162,7 @@ def open_app_window(url, profile_dir=WINDOW_PROFILE_DIR) -> str:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
+                env=child_environment(),
                 creationflags=flags,
                 close_fds=True,
             )
@@ -183,6 +200,33 @@ class FreyaWindow:
     @property
     def port(self):
         return self._gateway.port
+
+    @property
+    def speech(self):
+        """
+        Hands Freya's speech to a client that plays it, when one does.
+        """
+        return self._gateway.speech
+
+    def new_pairing_key(self) -> str:
+        """
+        A single-use key for a GUI program Freya is about to start.
+        """
+        return self._gateway.new_pairing_key()
+
+    def has_window(self) -> bool:
+        """Whether a window is connected that could answer a question."""
+        return self.running and self._gateway.window_count() > 0
+
+    def ask_owner(self, prompt: dict):
+        """
+        Ask the owner a question in the window. Returns the id of the
+        answer chosen, or None when there is no window or no answer.
+        """
+        if not self.running:
+            return None
+
+        return self._gateway.ask_owner(prompt)
 
     def start(self) -> bool:
         """

@@ -1,7 +1,11 @@
 import json
 import re
 
-from freya.core.model_runtime import get_model_runtime
+from freya.core.model_runtime import (
+    ROLE_BACKGROUND,
+    ROLE_CONVERSATION,
+    get_model_runtime,
+)
 
 
 ALLOWED_MEMORY_TYPES = {
@@ -23,13 +27,15 @@ ALLOWED_MEMORY_RELATIONSHIPS = {
 }
 
 
-def chat(messages):
+def chat(messages, options=None, role=ROLE_CONVERSATION):
     return get_model_runtime().chat(
-        messages
+        messages,
+        role=role,
+        **({"options": options} if options is not None else {}),
     )
 
 
-def chat_stream(messages, tools=None):
+def chat_stream(messages, tools=None, model_options=None):
     """
     Yield the reply as text chunks. When tools are offered and the
     model asks to use them, a dict with a "tool_calls" list is
@@ -39,6 +45,8 @@ def chat_stream(messages, tools=None):
 
     if tools:
         options["tools"] = tools
+    if model_options is not None:
+        options["options"] = model_options
 
     yield from get_model_runtime().chat_stream(
         messages,
@@ -46,25 +54,35 @@ def chat_stream(messages, tools=None):
     )
 
 
-MAX_SUMMARY_INPUT_CHARACTERS = 16000
+MAX_SUMMARY_INPUT_CHARACTERS = 6000
+MAX_SUMMARY_CHUNKS = 64
 MAX_SUMMARY_CHARACTERS = 1200
 
 
 def summarize_conversation(previous_summary, turns):
-    """
-    A short summary of a conversation: the summary so far, brought up
-    to date with the messages that came after it. Returns "" when the
-    model gives nothing usable.
-    """
-    lines = [
-        f"{'User' if turn['role'] == 'user' else 'Freya'}: {turn['content']}"
-        for turn in turns
-    ]
-    said = "\n".join(lines)[-MAX_SUMMARY_INPUT_CHARACTERS:]
-
-    if not said.strip():
+    """Summarize all supplied turns in bounded chunks; never skip a prefix."""
+    lines = [f"{'User' if turn['role'] == 'user' else 'Freya'}: {turn['content']}" for turn in turns]
+    raw = "\n".join(lines).encode("utf-8")
+    if len(raw) > MAX_SUMMARY_INPUT_CHARACTERS * MAX_SUMMARY_CHUNKS:
+        raise ValueError("This summary batch exceeds its work limit; no summary cursor was advanced.")
+    if not raw.strip():
         return str(previous_summary or "")
+    summary = str(previous_summary or "")[:MAX_SUMMARY_CHARACTERS]
+    position = 0
+    while position < len(raw):
+        end = min(len(raw), position + MAX_SUMMARY_INPUT_CHARACTERS)
+        while end < len(raw) and raw[end] & 0xC0 == 0x80:
+            end -= 1
+        said = raw[position:end].decode("utf-8")
+        updated = _summarize_conversation_chunk(summary, said)
+        if not updated:
+            return ""  # Never mark unprocessed chunks as summarized.
+        summary = updated
+        position = end
+    return summary
 
+
+def _summarize_conversation_chunk(previous_summary, said):
     prompt = f"""
 You keep the notes of a personal AI assistant named Freya. Write a
 summary of her conversation with the user, for her to read the next
@@ -89,7 +107,8 @@ What was said after that:
                 "role": "user",
                 "content": prompt,
             }
-        ]
+        ],
+        role=ROLE_BACKGROUND,
     )
 
     return " ".join(str(result or "").split())[:MAX_SUMMARY_CHARACTERS]
@@ -260,6 +279,7 @@ User message:
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 
@@ -365,6 +385,7 @@ Original memory:
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 
@@ -492,6 +513,7 @@ Content: {memory_b["content"]}
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 
@@ -573,9 +595,11 @@ def rerank_memory_candidates(
                     f"ID: {memory['id']}",
                     f"Type: {memory['type']}",
                     f"Key: {memory['key']}",
-                    (
-                        "Similarity: "
-                        f"{memory['similarity']:.4f}"
+                    # A candidate matched by its words has no score.
+                    *(
+                        [f"Similarity: {memory['similarity']:.4f}"]
+                        if "similarity" in memory
+                        else []
                     ),
                     f"Content: {memory['content']}",
                 ]
@@ -647,6 +671,7 @@ Candidate memories:
                 "content": prompt,
             }
         ],
+        role=ROLE_BACKGROUND,
         format="json",
     ).strip()
 

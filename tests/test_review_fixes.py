@@ -528,8 +528,9 @@ def test_events_reach_a_window_in_the_order_they_were_published(gallery):
     delivered = [socket.next()["text"] for _ in range(800)]
 
     # Whatever order the threads interleaved in, the window saw the
-    # same order as the bus's own record of the conversation.
-    assert delivered == [e["text"] for e in bus.history()][-800:]
+    # same order as the bus's own record of the conversation (which
+    # keeps the pieces of a reply as one entry).
+    assert "".join(delivered) == "".join(e["text"] for e in bus.history())
     assert socket.sent.empty()
 
     socket.close()
@@ -751,3 +752,29 @@ def test_bare_quit_word_quits_only_a_window_only_freya(context, bus, typed):
 
     assert quits == [1]
     assert notices(bus)[-1] == "Closing down."
+
+
+def test_a_long_reply_does_not_push_its_own_question_out_of_the_history():
+    # A reply arrives one token at a time. The history is bounded by
+    # entries, so a reply longer than the bound would otherwise push
+    # the owner's question, and the start of the reply, out of what a
+    # window opening later is shown.
+    bus = EventBus(history_limit=50)
+    live = []
+    bus.subscribe(live.append)
+
+    bus.publish("user", text="Tell me a long story.")
+    bus.publish("assistant_start")
+    for number in range(600):
+        bus.publish("assistant_chunk", text=f"{number} ")
+    bus.publish("assistant_end")
+
+    kept = bus.history()
+
+    assert [e["type"] for e in kept] == [
+        "user", "assistant_start", "assistant_chunk", "assistant_end",
+    ]
+    assert kept[2]["text"] == "".join(f"{n} " for n in range(600))
+    # The live events were delivered one by one, as they came.
+    assert sum(1 for e in live if e["type"] == "assistant_chunk") == 600
+    assert live[2]["text"] == "0 "

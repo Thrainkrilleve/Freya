@@ -1,0 +1,6 @@
+# Require an accountable owner for security-sensitive foundation changes.
+# CODEOWNERS only enforces review when branch protection requires code-owner approval.
+/src/freya/core/ @TranquilONE17
+/src/freya/control_plane.py @TranquilONE17
+/.github/workflows/ @TranquilONE17
+/.github/CODEOWNERS @TranquilONE17

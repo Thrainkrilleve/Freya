@@ -1,11 +1,18 @@
-from dataclasses import dataclass
+import threading
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List
 
+from freya import host_checks
+from freya.storage import backup
 from freya.config import AUDIT_CHECKPOINT_PATH
+from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
+from freya.config import CONTEXT_WINDOW_TOKENS
 from freya.config import EMBEDDING_MODEL
 from freya.config import MODEL
+from freya.config import WORLD_VIEW_ENABLED
+from freya.config import WORLD_VIEW_URL
 from freya.core.audit import (
     AuditStartup,
     FileCheckpointSink,
@@ -17,6 +24,7 @@ from freya.core.capabilities import (
     CapabilityDefinition,
     CapabilityRegistry,
 )
+from freya.core.conversation_memory import CONVERSATION_RECALL
 from freya.core.persistence import (
     CONTROL_DATABASE_PATH,
     ControlStore,
@@ -26,6 +34,8 @@ from freya.core.policy import (
     seed_alpha_policy,
 )
 from freya.core.model_runtime import (
+    LLM_BACKGROUND_CHAT,
+    ROLE_BACKGROUND,
     ModelRuntime,
     configure_model_runtime,
 )
@@ -45,11 +55,25 @@ from freya.providers.image.comfyui import (
     create_comfyui_provider,
 )
 from freya.providers.model.ollama import (
+    OLLAMA_BACKGROUND_CAPABILITIES,
     OLLAMA_CAPABILITIES,
     OLLAMA_PROVIDER,
     create_ollama_provider,
     register_ollama_capabilities,
     warm_ollama_models,
+)
+from freya.tools.world_view import (
+    WORLD_VIEW_CAPABILITIES,
+    WORLD_VIEW_PROVIDER,
+    WorldView,
+    create_world_view_provider,
+    register_world_view_capabilities,
+)
+from freya.tools.file_tools import (
+    FILE_READER_CAPABILITIES,
+    FILE_READER_PROVIDER,
+    create_file_reader_provider,
+    register_file_reader_capabilities,
 )
 from freya.tools.model_tools import (
     MODEL_TOOL,
@@ -60,10 +84,9 @@ from freya.tools.model_tools import (
 
 IMAGE_SERVICE_PROVIDER = "image-service-local"
 
-# Freya's own record of past conversations, and the one thing the
-# model may do with it: look passages up.
+# Freya's own record of past conversations and saved memories. Reading
+# it for the model is the one capability, CONVERSATION_RECALL.
 CONVERSATION_PROVIDER = "conversation-memory-local"
-CONVERSATION_RECALL = "conversation.recall"
 from freya.tools.system_tools import (
     SYSTEM_TOOL_CAPABILITIES,
     SYSTEM_TOOLS_PROVIDER,
@@ -87,6 +110,47 @@ class ControlPlane:
     audit_startup: AuditStartup
     model_runtime: ModelRuntime
     model_tools: ModelToolHost
+    # ComfyUI is started from more than one place (as Freya comes
+    # online, and when a picture is asked for). Only one may start it
+    # at a time, or two servers would be launched.
+    image_start_lock: threading.Lock = field(
+        default_factory=threading.Lock, repr=False, compare=False,
+    )
+
+    def start_image_backend_early(self, announce=print) -> bool:
+        """
+        Start ComfyUI as Freya comes online, so the first picture
+        does not wait for it. Returns whether it is now running.
+
+        Only a server Freya can start without a window is started
+        this way, and no image model is loaded: ComfyUI loads one
+        when a picture is first asked for. A failure is announced
+        once, with the reason, and is not an error: the next request
+        for a picture tries again.
+        """
+        provider = self.providers.get(COMFYUI_PROVIDER)
+
+        if not (provider.metadata["can_start"] and provider.metadata["headless"]):
+            return False
+
+        with self.image_start_lock:
+            self.providers.check_health(COMFYUI_PROVIDER)
+
+            if self.providers.get(COMFYUI_PROVIDER).health == ProviderHealth.HEALTHY:
+                self.providers.set_state(COMFYUI_PROVIDER, ProviderState.RUNNING)
+                return True
+
+            result = self.providers.start(COMFYUI_PROVIDER)
+
+            if not result.success:
+                announce(
+                    "Freya: I could not start ComfyUI, so I cannot make "
+                    f"pictures yet. {result.error}"
+                )
+                return False
+
+            self.providers.check_health(COMFYUI_PROVIDER)
+            return True
 
     def warm_models(self) -> None:
         """
@@ -97,6 +161,8 @@ class ControlPlane:
         warm_ollama_models(
             metadata["chat_model"],
             metadata["embedding_model"],
+            metadata["background_model"],
+            metadata["context_tokens"],
         )
 
     def register_image_generation(self, generate) -> None:
@@ -166,10 +232,24 @@ class ControlPlane:
             [IMAGE_GENERATE],
         )
 
+    def register_media(self, media) -> None:
+        """Register media without granting policy permissions."""
+        provider = media.provider()
+        self.providers.register(provider)
+        self.providers.start(provider.provider_id)
+        self.providers.check_health(provider.provider_id)
+        allowed = self.policy.decide(LOCAL_OWNER.actor, "media.recall").allow
+        for capability in media.capabilities(offer_recall=allowed):
+            self.capabilities.register(capability)
+
     def register_conversation_recall(self, recall) -> None:
         """
         Offer the model a way to look up what was said in earlier
         conversations. It only reads Freya's own record of them.
+
+        Freya's own read of her memories and conversations for a
+        reply goes through the same capability, so removing its
+        policy rule stops both.
         """
         self.providers.register(
             ProviderDefinition(
@@ -219,6 +299,58 @@ class ControlPlane:
             [CONVERSATION_RECALL],
         )
 
+    def register_file_reader(self, reader) -> None:
+        """
+        Offer the model a way to list, read and search text files in
+        the folders the owner has opened. It only reads.
+
+        The provider is healthy only while a folder is open, so until
+        the owner opens one the tools are not offered at all. Call
+        `refresh_file_reader` after the owner opens or closes one.
+        """
+        self.providers.register(create_file_reader_provider(reader))
+        self.providers.start(FILE_READER_PROVIDER)
+        self.providers.check_health(FILE_READER_PROVIDER)
+        register_file_reader_capabilities(self.capabilities, reader)
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-file-read",
+            LOCAL_OWNER.actor,
+            FILE_READER_CAPABILITIES,
+        )
+
+    def register_world_view(self, view) -> None:
+        """
+        Offer the model live public data about the world, read from a
+        God's Eye View program on this machine. Every tool only reads,
+        except the one that opens the globe in the user's browser.
+
+        The tools are offered only while that program answers, which is
+        asked again each time tools are offered, because the owner
+        starts and stops it apart from Freya.
+        """
+        self.providers.register(create_world_view_provider(view))
+        self.providers.start(WORLD_VIEW_PROVIDER)
+        self.providers.check_health(WORLD_VIEW_PROVIDER)
+        register_world_view_capabilities(self.capabilities, view)
+
+        for capability in WORLD_VIEW_CAPABILITIES:
+            self.model_tools.add_offer_condition(
+                capability, view.is_running
+            )
+
+        seed_alpha_policy(
+            self.policy,
+            "alpha-world-view",
+            LOCAL_OWNER.actor,
+            WORLD_VIEW_CAPABILITIES,
+        )
+
+    def refresh_file_reader(self) -> None:
+        if self.providers.get(FILE_READER_PROVIDER) is not None:
+            self.providers.check_health(FILE_READER_PROVIDER)
+
     def register_avatar(self, avatar) -> None:
         """
         Offer the spatial avatar's capabilities: showing her, reading
@@ -263,6 +395,10 @@ class ControlPlane:
         Make sure ComfyUI is running, starting it if needed. Raises
         RuntimeError when it is not running and cannot be started.
         """
+        with self.image_start_lock:
+            self._ensure_image_backend(announce)
+
+    def _ensure_image_backend(self, announce) -> None:
         self.providers.check_health(COMFYUI_PROVIDER)
         provider = self.providers.get(COMFYUI_PROVIDER)
 
@@ -312,7 +448,7 @@ class ControlPlane:
         elif health != ProviderHealth.HEALTHY:
             messages.append(
                 "Ollama is running but a required model is not "
-                "installed. Freya cannot reply until both models "
+                "installed. Freya cannot reply until all her models "
                 "are available."
             )
 
@@ -337,6 +473,13 @@ class ControlPlane:
                 "operation(s) were recorded as unknown-outcome."
             )
 
+        # Things about this PC that can quietly stop her tools working.
+        messages.extend(
+            host_checks.startup_warnings(host_checks._read_smart_app_control)
+        )
+        # A backup that failed at the last close, or an old one.
+        messages.extend(backup.startup_warning(self.store.path.parent))
+
         return messages
 
     def close(self) -> None:
@@ -355,6 +498,7 @@ class ControlPlane:
 def build_local_control_plane(
     database_path=CONTROL_DATABASE_PATH,
     checkpoint_path=AUDIT_CHECKPOINT_PATH,
+    world_view=None,
 ) -> ControlPlane:
     """
     Assemble the single-workstation control plane: providers,
@@ -367,7 +511,11 @@ def build_local_control_plane(
     providers.start(SYSTEM_TOOLS_PROVIDER)
     providers.check_health(SYSTEM_TOOLS_PROVIDER)
 
-    providers.register(create_ollama_provider(MODEL, EMBEDDING_MODEL))
+    providers.register(
+        create_ollama_provider(
+            MODEL, EMBEDDING_MODEL, BACKGROUND_MODEL, CONTEXT_WINDOW_TOKENS,
+        )
+    )
     providers.start(OLLAMA_PROVIDER)
     providers.check_health(OLLAMA_PROVIDER)
 
@@ -381,7 +529,14 @@ def build_local_control_plane(
 
     capabilities = CapabilityRegistry(providers)
     register_system_tools(capabilities)
-    register_ollama_capabilities(capabilities, MODEL, EMBEDDING_MODEL)
+    register_ollama_capabilities(
+        capabilities,
+        MODEL,
+        EMBEDDING_MODEL,
+        BACKGROUND_MODEL,
+        CONTEXT_WINDOW_TOKENS,
+    )
+    own_background = capabilities.get(LLM_BACKGROUND_CHAT) is not None
 
     policy = SqlitePolicyEngine(store)
     seed_alpha_policy(
@@ -410,6 +565,13 @@ def build_local_control_plane(
         LOCAL_OWNER.actor,
         OLLAMA_CAPABILITIES,
     )
+    if own_background:
+        seed_alpha_policy(
+            policy,
+            "alpha-model-background",
+            LOCAL_OWNER.actor,
+            OLLAMA_BACKGROUND_CAPABILITIES,
+        )
 
     sink = (
         FileCheckpointSink(checkpoint_path)
@@ -431,10 +593,15 @@ def build_local_control_plane(
     model_runtime = ModelRuntime(
         broker,
         refresh_health=lambda: providers.check_health(OLLAMA_PROVIDER),
+        routes=(
+            {ROLE_BACKGROUND: tuple(OLLAMA_BACKGROUND_CAPABILITIES)}
+            if own_background
+            else None
+        ),
     )
     configure_model_runtime(model_runtime)
 
-    return ControlPlane(
+    plane = ControlPlane(
         model_runtime=model_runtime,
         model_tools=ModelToolHost(capabilities, broker),
         store=store,
@@ -445,3 +612,13 @@ def build_local_control_plane(
         broker=broker,
         audit_startup=audit_startup,
     )
+
+    # Off unless the owner turned it on: these tools' answers come from
+    # the internet.
+    if world_view is None and WORLD_VIEW_ENABLED:
+        world_view = WorldView(WORLD_VIEW_URL)
+
+    if world_view is not None:
+        plane.register_world_view(world_view)
+
+    return plane

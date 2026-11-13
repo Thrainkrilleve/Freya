@@ -941,6 +941,7 @@ def test_session_reports_errors_as_events_and_carries_on():
 
 
 def test_renderer_choice_falls_back_and_explains():
+    pytest.importorskip("tkinter", reason="the placeholder renderer needs tkinter, which this Python lacks")
     chosen, notes = choose_renderer("tk-placeholder")
     assert chosen == "tk-placeholder" and notes == []
 

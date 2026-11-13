@@ -75,3 +75,15 @@ barge_in_stage2_stt_backup.py
 src/freya/mic_level_test.py
 barge_in_stage2_main_backup.patch
 barge_in_stage2_main_backup.py
+
+# Unreal client: source is kept here; assets and build output are not.
+# MetaHuman assets must not be committed (Epic's terms; see the design note).
+clients/unreal/*/Content/
+clients/unreal/*/Binaries/
+clients/unreal/*/Intermediate/
+clients/unreal/*/Saved/
+clients/unreal/*/Packaged/
+clients/unreal/*/DerivedDataCache/
+clients/unreal/*/Build/
+clients/unreal/*/Fixtures/*.wav
+clients/unreal/*/Fixtures/*.f32

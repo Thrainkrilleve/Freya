@@ -230,9 +230,9 @@ def new_assistant(plane, tmp_path, monkeypatch):
     monkeypatch.setattr(memory_manager, "DATABASE_PATH", tmp_path / "memory.db")
 
     def make():
-        assistant = FreyaAssistant(tool_host=plane.model_tools)
+        assistant = FreyaAssistant(tool_host=plane.model_tools, broker=plane.broker)
         if not plane.broker.exists(CONVERSATION_RECALL):
-            plane.register_conversation_recall(lambda query=None: make.current.recall(query))
+            plane.register_conversation_recall(lambda **request: make.current.recall(**request))
         make.current = assistant
         return assistant
 
@@ -274,14 +274,18 @@ def test_she_starts_with_summaries_of_recent_conversations(new_assistant, fake_o
     assert stored["summarized_turns"] == 2
 
     second = new_assistant()
-    notes = [m["content"] for m in second.messages if m["role"] == "system"]
-    assert any("paint the fence green" in note for note in notes)
-    assert any("not instructions" in note for note in notes)
+    sent = json.dumps(second._prepare_context("What is the time?"))
+    assert "The user decided to paint the fence green." in sent
+    assert "model-inference" in sent and "not instructions" in sent
+    assert {"source": "conversation-summary", "id": f"conversation:{stored['id']}",
+            "trust": "model-inference", "truncated": False} in second.context.last_report["included"]
+    # It is read for each reply, never kept in the live conversation.
+    assert all("paint the fence" not in m["content"] for m in second.messages)
     # Her new run is a new conversation, created when something is said.
     assert second.conversations.current is None
 
 
-def test_a_missed_summary_is_written_at_the_next_start(new_assistant, fake_ollama):
+def test_a_missed_summary_is_written_at_the_next_authorized_recall(new_assistant, fake_ollama):
     first = new_assistant()
     say(first, "Remind me about the boiler service.")
     # Freya was closed without the chance to summarise.
@@ -290,8 +294,9 @@ def test_a_missed_summary_is_written_at_the_next_start(new_assistant, fake_ollam
     fake_ollama.reply = "The user asked for a reminder about the boiler service."
     second = new_assistant()
 
+    sent = json.dumps(second._prepare_context("What is the time?"))
     assert "boiler" in second.conversations.recent()[0]["summary"]
-    assert any("boiler" in m["content"] for m in second.messages if m["role"] == "system")
+    assert "The user asked for a reminder about the boiler service." in sent
 
 
 def test_no_summary_is_lost_when_the_model_is_away(new_assistant, fake_ollama):
@@ -453,6 +458,8 @@ def test_deleting_from_an_earlier_conversation_rewrites_its_summary(new_assistan
     fake_ollama.reply = "The user likes kayaking."
     second.memory_request({"action": "turn-delete", "id": secret})
 
+    assert second.conversations.recent()[0]["summary"] == ""
+    second._prepare_context("What hobbies did we discuss?")
     summary = second.conversations.recent()[0]["summary"]
     assert summary == "The user likes kayaking."
 
@@ -541,8 +548,8 @@ def test_questions_about_the_past_are_recognised(question):
         "What do you think I should say to him?",
     ],
 )
-def test_other_messages_are_not_searched_for(new_assistant, message):
-    assert new_assistant().past_search_note(message) is None
+def test_other_messages_are_not_searched_for(message):
+    assert not conversation_memory.ASKS_ABOUT_THE_PAST.search(message)
 
 
 def test_asking_have_i_ever_searches_everything_first(new_assistant, fake_ollama):
@@ -580,9 +587,10 @@ def test_she_is_told_when_nothing_was_found(new_assistant, fake_ollama):
     assistant.memory.search_memories = lambda *arguments, **options: []
     say(assistant, "I like kayaking.")
 
-    note = assistant.past_search_note("Have I ever mentioned a helicopter?")
+    sent = assistant._prepare_context("Have I ever mentioned a helicopter?")
+    note = next(m["content"] for m in sent if "asking about the past" in m["content"])
 
-    assert "Nothing was found" in note and "helicopter" in note
+    assert "Nothing was found" in note and "searched for: helicopter" in note
     assert "no record" in note
 
 
@@ -590,6 +598,10 @@ def test_a_failed_search_does_not_stop_her_answering(new_assistant, fake_ollama)
     assistant = new_assistant()
     assistant.conversations.search = lambda *arguments, **options: 1 / 0
 
-    assert assistant.past_search_note("Have I ever mentioned a boat?") is None
     fake_ollama.stream_script = ["I am not sure."]
     assert say(assistant, "Have I ever mentioned a boat?") == "I am not sure."
+
+    # She was told the search failed, not that nothing was ever said.
+    sent = [call[2] for call in fake_ollama.calls if call[0] == "chat" and call[3]][-1]
+    assert "Stored conversations could not be searched." in json.dumps(sent)
+    assert "Nothing was found" not in json.dumps(sent)

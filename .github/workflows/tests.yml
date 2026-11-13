@@ -1,0 +1,40 @@
+name: tests
+
+# Runs the test suite on Windows, the alpha's target platform, for every pull
+# request and every push to main. Read-only: no secrets, no deployment.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv and Python 3.12
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      # --locked fails the job if uv.lock does not match pyproject.toml,
+      # so a dependency change without `uv lock` is caught here.
+      - name: Install the locked dependencies
+        run: uv sync --locked
+
+      - name: Run the tests
+        env:
+          FREYA_ALLOW_MULTIPLE: "1"
+          FREYA_WINDOW: "0"
+        run: uv run python -m pytest -q -ra

@@ -5,11 +5,12 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from freya.storage.locations import store_path
 from typing import List, Optional
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
-GALLERY_DIR = DATA_DIR / "images"
+GALLERY_DIR = store_path("images")
 
 INDEX_NAME = "index.json"
 

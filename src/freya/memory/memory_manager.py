@@ -3,7 +3,15 @@ import math
 import sqlite3
 from pathlib import Path
 
-from freya.core.model_runtime import get_model_runtime
+from freya.core.model_runtime import (
+    ModelRuntimeUnavailable,
+    get_model_runtime,
+)
+from freya.memory.deletion_ledger import (
+    DeletionLedger,
+    StorageQuarantined,
+    is_protected,
+)
 
 
 DATA_DIR = Path(__file__).resolve().parents[3] / "data"
@@ -14,8 +22,25 @@ DEFAULT_SIMILARITY_THRESHOLD = 0.50
 
 
 class MemoryManager:
-    def __init__(self):
-        DATA_DIR.mkdir(exist_ok=True)
+    def __init__(self, ledger_path=None):
+        """
+        With `ledger_path`, the database is opened in protected mode:
+        it and the deletion ledger at that path are checked against
+        each other, and every deletion on record is applied, before
+        anything else is done. Either failing raises
+        StorageQuarantined with nothing changed. The database must
+        already have been through `initialize_protection`.
+        """
+        # The record of deletions, in protected mode only.
+        self.ledger = None
+
+        if ledger_path is None:
+            DATA_DIR.mkdir(exist_ok=True)
+        elif not DATABASE_PATH.is_file():
+            # Connecting would create an empty one.
+            raise StorageQuarantined(
+                "There is no memory database to open."
+            )
 
         # Typed turns and spoken turns run on different threads. The
         # turn gate lets only one run at a time, so sharing this
@@ -24,6 +49,28 @@ class MemoryManager:
             DATABASE_PATH,
             check_same_thread=False,
         )
+
+        # Forgotten text is overwritten in the file, not just unlinked.
+        self.connection.execute(
+            "PRAGMA secure_delete = ON"
+        )
+
+        try:
+            if ledger_path is not None:
+                self.ledger = DeletionLedger.open(
+                    ledger_path,
+                    self.connection,
+                )
+            elif is_protected(self.connection):
+                # Deleting from it without its ledger would leave
+                # deletions that a restore could undo.
+                raise StorageQuarantined(
+                    "This memory database is protected and "
+                    "must be opened with its deletion ledger."
+                )
+        except BaseException:
+            self.connection.close()
+            raise
 
         self.connection.execute(
             """
@@ -143,6 +190,21 @@ class MemoryManager:
             text
         )
 
+    def _stored_embedding(self, text):
+        """
+        The embedding as it is stored, or None when the embedding
+        model cannot be reached. A memory kept without one is still
+        found by its words, and is embedded once the model is back.
+        """
+        try:
+            return json.dumps(
+                self._create_embedding(
+                    text
+                )
+            )
+        except ModelRuntimeUnavailable:
+            return None
+
     def _embed_existing_memories(self):
         cursor = self.connection.execute(
             """
@@ -153,9 +215,14 @@ class MemoryManager:
         )
 
         for memory_id, content in cursor.fetchall():
-            embedding = self._create_embedding(
+            embedding = self._stored_embedding(
                 content
             )
+
+            if embedding is None:
+                # The embedding model is away. The rest are tried
+                # again at the next search and the next start.
+                break
 
             self.connection.execute(
                 """
@@ -164,7 +231,7 @@ class MemoryManager:
                 WHERE id = ?
                 """,
                 (
-                    json.dumps(embedding),
+                    embedding,
                     memory_id,
                 ),
             )
@@ -227,7 +294,7 @@ class MemoryManager:
         if existing:
             return existing[0]
 
-        embedding = self._create_embedding(
+        embedding = self._stored_embedding(
             content
         )
 
@@ -246,7 +313,7 @@ class MemoryManager:
                 memory_type,
                 memory_key,
                 content,
-                json.dumps(embedding),
+                embedding,
             ),
         )
 
@@ -275,7 +342,7 @@ class MemoryManager:
         if memory_key is None:
             memory_key = existing["key"]
 
-        embedding = self._create_embedding(
+        embedding = self._stored_embedding(
             content
         )
 
@@ -303,7 +370,7 @@ class MemoryManager:
                     memory_type,
                     memory_key,
                     content,
-                    json.dumps(embedding),
+                    embedding,
                     memory_id,
                 ),
             )
@@ -477,31 +544,79 @@ class MemoryManager:
     def delete_memory(
         self,
         memory_id,
-        action="delete",
     ):
+        """
+        Forget a memory because the owner asked: the memory with its
+        embedding, every earlier version of it in the history, any
+        other history entry holding the same words, and its line in
+        a saved migration plan all go together. Nothing is archived.
+
+        A memory that is no longer live but still has history (one
+        removed as a duplicate, say) is forgotten the same way.
+        Returns False when there was nothing to forget.
+        """
         existing = self.get_memory(
             memory_id
         )
 
-        if existing is None:
-            return False
+        content = (
+            existing["content"]
+            if existing is not None
+            else None
+        )
+
+        if self.ledger is not None:
+            doomed = self._doomed(
+                memory_id,
+                content,
+            )
+
+            if doomed:
+                # Recorded in the ledger first, then removed; see
+                # DeletionLedger. May raise StorageQuarantined.
+                self.ledger.forget(
+                    self.connection,
+                    doomed,
+                    plan=(memory_id, content),
+                )
+
+                return True
 
         try:
             self.connection.execute(
                 "BEGIN"
             )
 
-            self._archive_memory(
-                memory_id,
-                action,
-            )
-
-            cursor = self.connection.execute(
+            removed = self.connection.execute(
                 """
                 DELETE FROM memories
                 WHERE id = ?
                 """,
                 (memory_id,),
+            ).rowcount
+
+            removed += self.connection.execute(
+                """
+                DELETE FROM memory_history
+                WHERE memory_id = ?
+                   OR LOWER(content) = LOWER(?)
+                """,
+                (
+                    memory_id,
+                    content,
+                ),
+            ).rowcount
+
+            self.connection.execute(
+                """
+                DELETE FROM migration_plan
+                WHERE memory_id = ?
+                   OR LOWER(original_content) = LOWER(?)
+                """,
+                (
+                    memory_id,
+                    content,
+                ),
             )
 
             self.connection.commit()
@@ -510,7 +625,53 @@ class MemoryManager:
             self.connection.rollback()
             raise
 
-        return cursor.rowcount > 0
+        return removed > 0
+
+    def _doomed(
+        self,
+        memory_id,
+        content,
+    ):
+        """
+        The identifier and kind of every row that forgetting a memory
+        removes: the memory, its earlier versions, and any other
+        history entry holding the same words.
+        """
+        doomed = self.connection.execute(
+            """
+            SELECT artifact_id, 'memory'
+            FROM memories
+            WHERE id = ?
+            """,
+            (memory_id,),
+        ).fetchall()
+
+        if not doomed:
+            # No longer live, so only its history is here. A copy of
+            # the database in which it was still live holds it under
+            # the identifier its history entries remember.
+            doomed = self.connection.execute(
+                """
+                SELECT DISTINCT memory_artifact_id, 'memory'
+                FROM memory_history
+                WHERE memory_id = ?
+                  AND memory_artifact_id IS NOT NULL
+                """,
+                (memory_id,),
+            ).fetchall()
+
+        return doomed + self.connection.execute(
+            """
+            SELECT artifact_id, 'history'
+            FROM memory_history
+            WHERE memory_id = ?
+               OR LOWER(content) = LOWER(?)
+            """,
+            (
+                memory_id,
+                content,
+            ),
+        ).fetchall()
 
     def resolve_duplicate(
         self,
@@ -692,7 +853,7 @@ class MemoryManager:
                 }
 
         restored_embedding = (
-            self._create_embedding(
+            self._stored_embedding(
                 history["content"]
             )
         )
@@ -782,9 +943,7 @@ class MemoryManager:
                     history["type"],
                     history["key"],
                     history["content"],
-                    json.dumps(
-                        restored_embedding
-                    ),
+                    restored_embedding,
                     memory_id,
                 ),
             )
@@ -1075,6 +1234,10 @@ class MemoryManager:
         query_embedding = self._create_embedding(
             query
         )
+
+        # The embedding model is answering, so memories saved while
+        # it was away can be embedded now and take part in this search.
+        self._embed_existing_memories()
 
         cursor = self.connection.execute(
             """

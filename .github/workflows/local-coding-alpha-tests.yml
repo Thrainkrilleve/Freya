@@ -1,0 +1,57 @@
+name: Local coding alpha tests
+on:
+  push:
+    branches: [work/security-local-coding-alpha]
+  pull_request:
+    paths:
+      - 'devtools/**'
+      - 'src/freya/core/**'
+      - 'tests/**'
+      - '.github/workflows/local-coding-alpha-tests.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  offline-tests:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Offline coding security tests
+        run: |
+          python -c "import sys, unittest; sys.path[:0] = ['src', 'devtools']; result = unittest.TextTestRunner(verbosity=2).run(unittest.defaultTestLoader.discover('devtools', pattern='test_*.py')); sys.exit(not result.wasSuccessful())"
+  control-plane-tests:
+    # Audit, broker, policy, and registry tests need only the standard
+    # library and pytest, so they run without installing Freya's runtime.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install pytest
+        run: python -m pip install --disable-pip-version-check "pytest>=8"
+      - name: Audit, broker, policy, and registry tests
+        env:
+          PYTHONPATH: src
+        run: >
+          python -m pytest -p no:cacheprovider
+          tests/test_audit_log.py tests/test_audit_reliability.py
+          tests/test_policy_engine.py tests/test_capability_registry.py
+          tests/test_provider_registry.py

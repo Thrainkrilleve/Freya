@@ -15,10 +15,10 @@ package index, GitHub (Chatterbox's source), and Hugging Face. It needs
 `uv` on the PATH.
 """
 import argparse
-import os
 import subprocess
 import sys
 
+from freya.child_environment import child_environment
 from freya.speech.helper import ENVS_DIR, MODELS_DIR, environment_python
 
 
@@ -64,9 +64,10 @@ ENGINES = {
 }
 
 
-def run(command, **options):
+def run(command, environment=None):
     print(">", " ".join(str(part) for part in command), flush=True)
-    subprocess.run(command, check=True, **options)
+    # These programs run code from the packages they download.
+    subprocess.run(command, check=True, env=child_environment(environment))
 
 
 def install(engine_id: str) -> None:
@@ -89,7 +90,7 @@ def install(engine_id: str) -> None:
     print("Downloading model files...", flush=True)
     run(
         [str(python), "-c", engine["fetch"]],
-        env={**os.environ, "HF_HOME": str(MODELS_DIR)},
+        {"HF_HOME": str(MODELS_DIR)},
     )
     print(f"{engine_id} is ready. Restart Freya to use it.")
 

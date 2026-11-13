@@ -1,0 +1,63 @@
+name: Core foundation CI
+
+on:
+  push:
+    branches: [main, work/m1a-core-reliability]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: core-foundation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  foundation-tests:
+    name: Foundation tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install test runner
+        run: python -m pip install --disable-pip-version-check "pytest>=8,<10"
+      - name: Validate Core syntax
+        run: python -m compileall -q src/freya/core
+      - name: Run foundation tests without optional ML dependencies
+        env:
+          PYTHONPATH: src
+        run: >-
+          python -m pytest -p no:cacheprovider
+          tests/test_audit_log.py
+          tests/test_policy_engine.py
+          tests/test_capability_registry.py
+          tests/test_provider_registry.py
+
+  core-static-analysis:
+    name: Core static analysis
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install static analysis
+        run: python -m pip install --disable-pip-version-check "ruff>=0.9,<1" "bandit>=1.8,<2"
+      - name: Detect syntax and high-confidence lint errors
+        run: ruff check --select E9,F63,F7,F82 src/freya/core
+      - name: Enforce no high-severity Bandit findings
+        run: >-
+          bandit -r src/freya/core -q -lll

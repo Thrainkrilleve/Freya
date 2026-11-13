@@ -163,11 +163,12 @@ def test_pointing_reaches_the_page_as_a_direction_not_a_place():
 
 
 def test_the_3d_renderer_is_only_used_when_asked_for(tmp_path, monkeypatch):
+    pytest.importorskip("tkinter", reason="the placeholder renderer needs tkinter, which this Python lacks")
     model = tmp_path / "model.vrm"
     model.write_bytes(b"x")
     monkeypatch.setenv(MODEL_VARIABLE, str(model))
     monkeypatch.setattr(web.importlib.util, "find_spec", lambda name: object())
-    monkeypatch.setattr(web.os, "name", "nt")
+    monkeypatch.setattr(web, "on_windows", lambda: True)
 
     assert "web" in RENDERERS
     assert load_renderer("web") is WebRenderer
@@ -180,7 +181,8 @@ def test_the_3d_renderer_is_only_used_when_asked_for(tmp_path, monkeypatch):
 
 
 def test_the_3d_renderer_says_why_it_cannot_run(tmp_path, monkeypatch):
-    monkeypatch.setattr(web.os, "name", "nt")
+    pytest.importorskip("tkinter", reason="the placeholder renderer needs tkinter, which this Python lacks")
+    monkeypatch.setattr(web, "on_windows", lambda: True)
     monkeypatch.setattr(web.importlib.util, "find_spec", lambda name: object())
     monkeypatch.delenv(MODEL_VARIABLE, raising=False)
     assert "No avatar model" in WebRenderer.available()
@@ -194,7 +196,7 @@ def test_the_3d_renderer_says_why_it_cannot_run(tmp_path, monkeypatch):
     monkeypatch.setattr(web.importlib.util, "find_spec", lambda name: None)
     assert "pywebview" in WebRenderer.available()
 
-    monkeypatch.setattr(web.os, "name", "posix")
+    monkeypatch.setattr(web, "on_windows", lambda: False)
     assert "Windows" in WebRenderer.available()
 
 
@@ -211,7 +213,7 @@ def plane(tmp_path, fake_ollama):
 @pytest.fixture
 def service(plane, tmp_path, monkeypatch):
     monkeypatch.setattr(web.importlib.util, "find_spec", lambda name: object())
-    monkeypatch.setattr(web.os, "name", "nt")
+    monkeypatch.setattr(web, "on_windows", lambda: True)
     models = tmp_path / "avatar_models"
     models.mkdir()
     (models / "one.vrm").write_bytes(vrm1())
@@ -239,6 +241,7 @@ def save_avatar(service):
 
 
 def test_marking_an_avatar_as_hers_asks_for_the_3d_renderer(service, tmp_path):
+    pytest.importorskip("tkinter", reason="the placeholder renderer needs tkinter, which this Python lacks")
     assert service._wanted_renderer() == ("null", {})
 
     avatar = save_avatar(service)

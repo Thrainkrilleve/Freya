@@ -3,6 +3,8 @@ import platform
 import subprocess
 import time
 
+from freya.child_environment import child_environment
+
 
 # Read-only CIM queries. Serial numbers, MAC addresses, and other unique
 # identifiers are deliberately not collected.
@@ -128,6 +130,7 @@ def _query():
         text=True,
         check=True,
         timeout=60,
+        env=child_environment(),
         # Without this, a Freya running without a console of her own
         # shows a terminal window for as long as the query runs.
         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),

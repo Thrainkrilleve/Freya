@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
+from freya.memory.deletion_ledger import TABLES
+
 
 BACKUP_FOLDER = "backups"
 BACKUP_NAME = "freya_memory-before-conversations.db"
@@ -63,11 +65,14 @@ class ConversationStore:
     conversation's summary so that nothing deleted lingers in it.
 
     It uses the memory manager's database connection, and like it is
-    only ever used by one turn at a time.
+    only ever used by one turn at a time. Given the memory manager's
+    deletion ledger as well, everything deleted here is recorded in it
+    first, so that a restored copy of the database loses it too.
     """
 
-    def __init__(self, connection: sqlite3.Connection):
+    def __init__(self, connection: sqlite3.Connection, ledger=None):
         self.connection = connection
+        self.ledger = ledger
         self.current: Optional[int] = None
 
         if not self._exists("conversation"):
@@ -343,12 +348,77 @@ class ConversationStore:
                 "DELETE FROM conversation_turn WHERE id = ?", (turn_id,)
             )
 
+        self._purge_search_index()
+
+    def _purge_search_index(self) -> None:
+        # The index keeps a deleted message's words in its older parts
+        # until those are merged. Merging them now drops the words.
+        self.connection.execute(
+            "INSERT INTO conversation_search (conversation_search) VALUES ('optimize')"
+        )
+
+    def _tombstones(self, kind, ids) -> list:
+        """
+        What the deletion ledger records for these rows: each one's
+        identifier and kind.
+        """
+        return [
+            (row[0], kind)
+            for number in ids
+            for row in self.connection.execute(
+                f"SELECT artifact_id FROM {TABLES[kind]} WHERE id = ?", (number,)
+            ).fetchall()
+        ]
+
+    def _forget(self, doomed) -> None:
+        # Recorded in the ledger first, then removed with their search
+        # entries and summaries; see DeletionLedger. If the removal
+        # fails this raises StorageQuarantined and the database is closed.
+        self.ledger.forget(self.connection, doomed, keep=self.current)
+
+    def _remove_turns(self, conversation_id, turn_ids) -> None:
+        """
+        Remove messages of one conversation together with what was
+        derived from them, all or nothing: their search entries, and
+        the conversation's summary, because it may repeat what was
+        removed. A conversation left with no messages is removed too.
+        """
+        if self.ledger is not None:
+            marks = ", ".join("?" * len(turn_ids))
+            left = self.connection.execute(
+                "SELECT COUNT(*) FROM conversation_turn "
+                f"WHERE conversation_id = ? AND id NOT IN ({marks})",
+                (conversation_id, *turn_ids),
+            ).fetchone()[0]
+            doomed = self._tombstones("turn", turn_ids)
+
+            if left == 0 and conversation_id != self.current:
+                doomed += self._tombstones("conversation", [conversation_id])
+
+            self._forget(doomed)
+            return
+
+        with self.connection:
+            self._forget_turns(turn_ids)
+            remaining = self.connection.execute(
+                "SELECT COUNT(*) FROM conversation_turn WHERE conversation_id = ?",
+                (conversation_id,),
+            ).fetchone()[0]
+
+            if remaining == 0 and conversation_id != self.current:
+                self.connection.execute(
+                    "DELETE FROM conversation WHERE id = ?", (conversation_id,)
+                )
+            else:
+                self.connection.execute(
+                    "UPDATE conversation SET summary = '', summarized_turns = 0 WHERE id = ?",
+                    (conversation_id,),
+                )
+
     def delete_turn(self, turn_id) -> Optional[int]:
         """
         Remove one message for good. Returns the conversation it was
-        in, or None when there is no such message. The conversation's
-        summary is cleared, because it may repeat what was removed; a
-        conversation left with no messages is removed too.
+        in, or None when there is no such message.
         """
         row = self.connection.execute(
             "SELECT conversation_id FROM conversation_turn WHERE id = ?", (turn_id,)
@@ -357,26 +427,9 @@ class ConversationStore:
         if row is None:
             return None
 
-        conversation_id = row[0]
-        self._forget_turns([turn_id])
-        remaining = self.connection.execute(
-            "SELECT COUNT(*) FROM conversation_turn WHERE conversation_id = ?",
-            (conversation_id,),
-        ).fetchone()[0]
+        self._remove_turns(row[0], [turn_id])
 
-        if remaining == 0 and conversation_id != self.current:
-            self.connection.execute(
-                "DELETE FROM conversation WHERE id = ?", (conversation_id,)
-            )
-        else:
-            self.connection.execute(
-                "UPDATE conversation SET summary = '', summarized_turns = 0 WHERE id = ?",
-                (conversation_id,),
-            )
-
-        self.connection.commit()
-
-        return conversation_id
+        return row[0]
 
     def delete_exchange(self, turn_id) -> Optional[int]:
         """
@@ -408,10 +461,12 @@ class ConversationStore:
                 (conversation_id, turn_id),
             ).fetchone()
 
-        if other is not None and other[1] != role:
-            self.delete_turn(other[0])
+        halves = [turn_id]
 
-        self.delete_turn(turn_id)
+        if other is not None and other[1] != role:
+            halves.append(other[0])
+
+        self._remove_turns(conversation_id, halves)
 
         return conversation_id
 
@@ -429,14 +484,22 @@ class ConversationStore:
                 (conversation_id,),
             )
         ]
-        self._forget_turns(ids)
+
+        if self.ledger is not None:
+            self._forget(
+                self._tombstones("turn", ids)
+                + self._tombstones("conversation", [conversation_id])
+            )
+        else:
+            with self.connection:
+                self._forget_turns(ids)
+                self.connection.execute(
+                    "DELETE FROM conversation WHERE id = ?", (conversation_id,)
+                )
 
         if conversation_id == self.current:
             # The run goes on; what is said next starts a new record.
             self.current = None
-
-        self.connection.execute("DELETE FROM conversation WHERE id = ?", (conversation_id,))
-        self.connection.commit()
 
         return True
 
@@ -445,10 +508,21 @@ class ConversationStore:
         Remove every conversation for good. Returns how many there were.
         """
         count = self.connection.execute("SELECT COUNT(*) FROM conversation").fetchone()[0]
-        self.connection.execute("DELETE FROM conversation_search")
-        self.connection.execute("DELETE FROM conversation_turn")
-        self.connection.execute("DELETE FROM conversation")
-        self.connection.commit()
+
+        if self.ledger is not None:
+            self._forget(
+                self.connection.execute(
+                    "SELECT artifact_id, 'turn' FROM conversation_turn "
+                    "UNION ALL SELECT artifact_id, 'conversation' FROM conversation"
+                ).fetchall()
+            )
+        else:
+            with self.connection:
+                self.connection.execute("DELETE FROM conversation_search")
+                self.connection.execute("DELETE FROM conversation_turn")
+                self.connection.execute("DELETE FROM conversation")
+                self._purge_search_index()
+
         self.current = None
 
         return count

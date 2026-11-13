@@ -1,11 +1,14 @@
 import hashlib
 import json
+import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List, Optional
 
 
 GENESIS_HASH = "0" * 64
+
+logger = logging.getLogger(__name__)
 
 HASHED_FIELDS = (
     "event_id",
@@ -56,6 +59,14 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
 
 
+def _describe(exc: BaseException) -> str:
+    """
+    A short description of a storage failure, safe to show the operator.
+    Storage errors describe the database, never audited payloads.
+    """
+    return f"{type(exc).__name__}: {exc}"[:ERROR_SUMMARY_LIMIT]
+
+
 def _row_hash(event: dict) -> str:
     canonical = json.dumps(
         {name: event[name] for name in HASHED_FIELDS},
@@ -92,14 +103,51 @@ class SqliteAuditLog:
         Verify the log, close out operations that were interrupted
         before their outcome was recorded, and checkpoint.
         """
-        verification = self.verify()
-        self.integrity_ok = verification.ok
+        self.integrity_ok = False
+
+        try:
+            verification = self.verify()
+        except Exception as exc:
+            # A log that cannot be read cannot be trusted: fail closed
+            # rather than crash, so the operator is told why.
+            return AuditStartup(
+                verification=AuditVerification(
+                    ok=False,
+                    events_checked=0,
+                    problems=[
+                        "The audit log could not be read: "
+                        f"{_describe(exc)}"
+                    ],
+                )
+            )
 
         if not verification.ok:
             return AuditStartup(verification=verification)
 
-        reconciled = self.reconcile_interrupted()
-        self.checkpoint()
+        # record() refuses until integrity_ok is set, and
+        # reconciliation has to write.
+        self.integrity_ok = True
+
+        try:
+            reconciled = self.reconcile_interrupted()
+        except Exception as exc:
+            self.integrity_ok = False
+            verification.ok = False
+            verification.problems.append(
+                "Interrupted operations could not be closed out: "
+                f"{_describe(exc)}"
+            )
+            return AuditStartup(verification=verification)
+
+        try:
+            self.checkpoint()
+        except Exception as exc:
+            # The chain itself is intact and verified; a missing
+            # checkpoint only weakens truncation evidence until the
+            # next one is written.
+            verification.warnings.append(
+                f"Startup checkpoint could not be written: {_describe(exc)}"
+            )
 
         return AuditStartup(
             verification=verification,
@@ -171,10 +219,10 @@ class SqliteAuditLog:
                 )
                 event["row_hash"] = _row_hash(event)
 
-                columns = list(event)
+                columns = ("operation_id", "recorded_at", "kind", "actor", "client", "domain", "capability", "provider", "target_ref", "decision", "decision_reason", "policy_revision", "grant_epoch", "outcome", "error_summary", "arguments_digest", "event_id", "prev_hash", "row_hash")
                 connection.execute(
-                    f"INSERT INTO audit_event ({', '.join(columns)}) "
-                    f"VALUES ({', '.join('?' for _ in columns)})",
+                    "INSERT INTO audit_event (operation_id, recorded_at, kind, actor, client, domain, capability, provider, target_ref, decision, decision_reason, policy_revision, grant_epoch, outcome, error_summary, arguments_digest, event_id, prev_hash, row_hash) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     [event[name] for name in columns],
                 )
         except Exception as exc:
@@ -182,7 +230,18 @@ class SqliteAuditLog:
                 f"The audit record could not be written: {exc}"
             ) from exc
 
-        self._checkpoint_if_due(event["event_id"])
+        # The event is committed. A checkpoint is supplementary evidence,
+        # so failing to write one must not be reported as a failure to
+        # record the event: the caller would believe an action was not
+        # logged when it was.
+        try:
+            self._checkpoint_if_due(event["event_id"])
+        except Exception as exc:
+            logger.warning(
+                "Audit checkpoint after event %s could not be written: %s",
+                event["event_id"],
+                _describe(exc),
+            )
 
         return event["event_id"]
 

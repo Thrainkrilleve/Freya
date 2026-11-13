@@ -1,0 +1,40 @@
+name: CodeQL security analysis
+on:
+  push:
+    branches: [work/security-local-coding-alpha]
+  pull_request:
+    paths:
+      - 'devtools/**'
+      - 'src/**'
+      - '.github/workflows/codeql-security.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
+        with:
+          languages: python
+          queries: security-extended
+      - name: Analyze Python and generate local SARIF
+        uses: github/codeql-action/analyze@v3
+        with:
+          upload: never
+          output: codeql-results
+      - name: Summarize CodeQL findings
+        run: python devtools/security_report.py codeql codeql-results
+      - name: Upload CodeQL findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: codeql-security-sarif
+          path: codeql-results/
+          if-no-files-found: error

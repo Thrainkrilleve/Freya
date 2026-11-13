@@ -43,6 +43,8 @@ class Settings:
         self._lock = threading.Lock()
         self._wake_names = list(DEFAULT_WAKE_NAMES)
         self._voice_volume = DEFAULT_VOICE_VOLUME
+        # Folders the owner has opened for Freya to read. None to start.
+        self._readable_folders = []
         self._load()
 
     def _load(self):
@@ -58,6 +60,14 @@ class Settings:
             self._voice_volume = clamp_volume(data.get("voice_volume"))
         except ValueError:
             pass
+
+        folders = data.get("readable_folders")
+
+        if isinstance(folders, list):
+            self._readable_folders = list(dict.fromkeys(
+                folder for folder in folders
+                if isinstance(folder, str) and folder.strip()
+            ))
 
         stored = data.get("wake_names")
 
@@ -90,6 +100,7 @@ class Settings:
                 {
                     "wake_names": self._wake_names,
                     "voice_volume": self._voice_volume,
+                    "readable_folders": self._readable_folders,
                 },
                 indent=2,
             ),
@@ -106,6 +117,41 @@ class Settings:
     def voice_volume(self) -> int:
         with self._lock:
             return self._voice_volume
+
+    @property
+    def readable_folders(self) -> List[str]:
+        with self._lock:
+            return list(self._readable_folders)
+
+    def add_readable_folder(self, folder: str) -> str:
+        """
+        Open a folder for reading. The caller has already checked that
+        it is a folder that may be opened. Raises ValueError if it is
+        open already.
+        """
+        folder = str(folder)
+
+        with self._lock:
+            if folder.lower() in (kept.lower() for kept in self._readable_folders):
+                raise ValueError("That folder is already open.")
+
+            self._readable_folders.append(folder)
+            self._save()
+
+        return folder
+
+    def remove_readable_folder(self, folder: str) -> str:
+        """Close a folder. Raises ValueError if it was not open."""
+        wanted = str(folder).strip().strip('"').rstrip("\\/").lower()
+
+        with self._lock:
+            for kept in self._readable_folders:
+                if kept.rstrip("\\/").lower() == wanted:
+                    self._readable_folders.remove(kept)
+                    self._save()
+                    return kept
+
+        raise ValueError("That folder is not open.")
 
     def set_voice_volume(self, value) -> int:
         """

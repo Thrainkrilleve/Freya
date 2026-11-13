@@ -537,12 +537,15 @@ def probe_layout() -> DisplayLayout:
     import subprocess
     import sys
 
+    from freya.child_environment import child_environment
+
     try:
         output = subprocess.run(
             [sys.executable, "-m", "freya.spatial_avatar.geometry"],
             capture_output=True,
             text=True,
             timeout=PROBE_TIMEOUT_SECONDS,
+            env=child_environment(),
             creationflags=(
                 subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             ),

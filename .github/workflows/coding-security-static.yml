@@ -1,0 +1,45 @@
+name: Coding security static analysis
+on:
+  push:
+    branches: [work/security-local-coding-alpha]
+  pull_request:
+    paths:
+      - 'devtools/**'
+      - 'src/freya/core/**'
+      - '.github/workflows/coding-security-static.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  static-analysis:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install analysis tools
+        run: python -m pip install --disable-pip-version-check ruff bandit
+      - name: Python syntax validation
+        run: python -m compileall -q devtools src/freya/core
+      - name: Critical Python lint checks
+        run: ruff check --select E9,F63,F7,F82 devtools src/freya/core
+      - name: Security findings report (advisory baseline)
+        run: |
+          bandit -r devtools src/freya/core --exit-zero -f json -o bandit-report.json
+      - name: Enforce zero high-severity Bandit findings
+        run: |
+          python devtools/security_report.py bandit bandit-report.json --fail-on-high
+      - name: Summarize security findings
+        if: always()
+        run: python devtools/security_report.py bandit bandit-report.json
+      - name: Publish security findings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coding-security-bandit-report
+          path: bandit-report.json
+          if-no-files-found: error

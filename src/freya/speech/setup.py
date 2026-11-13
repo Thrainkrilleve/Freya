@@ -1,6 +1,7 @@
 import os
 import subprocess
 
+from freya.child_environment import child_environment
 from freya.speech.chatterbox_engine import ChatterboxEngine
 from freya.speech.engines import planned_engines
 from freya.speech.kokoro_engine import KokoroEngine
@@ -23,6 +24,7 @@ def free_gpu_megabytes():
             capture_output=True,
             text=True,
             timeout=10,
+            env=child_environment(),
             creationflags=(
                 subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
             ),
@@ -73,6 +75,9 @@ def build_voice_studio(
     )
 
     def apply_live_voice(profile):
+        if not getattr(voice, "enabled", True):
+            return
+
         if profile is None:
             voice.reset_voice()
             return
