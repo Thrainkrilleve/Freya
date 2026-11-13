@@ -1,8 +1,9 @@
 name: Discord coordinator tests
 on:
   push:
-    branches: [feature/discord-dual-ai-coordinator]
+    branches: [main, feature/discord-dual-ai-coordinator]
   pull_request:
+    branches: [main, feature/discord-dual-ai-coordinator]
     paths:
       - 'tools/discord_coordinator/**'
       - 'tests/test_discord_coordinator.py'

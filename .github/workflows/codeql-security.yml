@@ -1,8 +1,9 @@
 name: CodeQL security analysis
 on:
   push:
-    branches: [work/security-local-coding-alpha]
+    branches: [main, work/security-local-coding-alpha]
   pull_request:
+    branches: [main, work/security-local-coding-alpha]
     paths:
       - 'devtools/**'
       - 'src/**'
