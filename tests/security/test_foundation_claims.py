@@ -1,11 +1,11 @@
 """
-Explicit tests for the local security claims Freya already makes.
+Explicit tests for local security claims Freya already makes.
 
-Section 12 of the Foundation (distributed nodes) is recorded in
-docs/security/foundation-section-12.md. Most of it is not proven here.
-What this file proves is deny-by-default, an audit entry for every
-brokered call, a hash chain that shows a rewrite, the gateway's
-one-time key and cookie, and a loopback bind.
+Which of the fourteen principles in the project overview's section 12
+are proven, partial, or not proven is recorded in
+docs/security/foundation-section-12.md. This file covers deny-by-default,
+an audit entry for every brokered call, a hash chain that shows a
+rewrite, the gateway's one-time key and cookie, and a loopback bind.
 """
 
 import sqlite3
@@ -28,7 +28,8 @@ from freya.window import WindowActions
 ROOT = Path(__file__).resolve().parents[2]
 SOURCE = ROOT / "src" / "freya"
 
-# Schedulers section 12 says a single node must not require.
+# This tree does not import a cluster scheduler. That check is not one
+# of the fourteen principles in docs/security/foundation-section-12.md.
 SCHEDULERS = ("ray", "nats", "nomad", "k3s", "kubernetes")
 
 

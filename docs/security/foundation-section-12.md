@@ -1,41 +1,31 @@
-# Foundation section 12, and what the tests actually prove
+# Section 12, and what the tests actually prove
 
 Status: a record of evidence, written 2026-11-13. Not an ADR, not adopted,
-and not an acceptance result. Baseline: *Freya Foundation v1.1*, section 12
-(Distributed Nodes and Messaging, DIST-001 to DIST-010). The owner is Thrain.
+and not an acceptance result. The owner is Thrain.
 
-Section 12 is about nodes and messaging. The security suite in
-`tests/security/` proves local claims from other sections. Those claims are
-listed second so they are not mistaken for section 12.
+Section 12 here is the project overview's **Non-Negotiable Foundations
+(Security, Privacy & Reliability)**, fourteen principles. It is not section
+12 of *Freya Foundation v1.1*, which is distributed nodes and messaging.
 
-## Section 12
+A line is **Proven by tests** only when a test would fail if that principle
+were broken in the way the test sets up. **Partial** means a test covers one
+piece and a stated gap remains. **Not proven** means this tree has no test
+that would catch a breach of the principle. Nothing below is an acceptance
+result.
 
-| Principle | What it requires | Proven by a test? |
-| --- | --- | --- |
-| DIST-001 | A Freya node abstraction that does not depend on Ray, K3s, Nomad, or any one scheduler | No. `freya.federation.profile` can describe one machine without naming a scheduler, and `tests/test_federation.py` checks that the profile program imports nothing from Freya. There is no node runtime, and nothing is sent to another machine. |
-| DIST-002 | Heterogeneous Windows and Linux nodes, and future accelerators, through declared capabilities | No. One workstation. No second node is enrolled into a working channel. |
-| DIST-003 | Connectivity does not imply trust or authorization | Partly, for the local list only. `test_an_offer_is_only_a_suggestion`, `test_being_on_the_tailnet_enrolls_nothing`, `test_voice_and_other_principals_cannot_enroll`, `test_a_machine_from_a_file_is_never_given_work_until_bound_to_a_key`, and `test_workers_live_on_the_home_network_or_the_tailnet_only` in `tests/test_federation.py`. An offer, a tailnet listing, and a file do not grant work. Not proven as a property of a live distributed system: Core does not import `freya.federation`, and no worker channel exists. |
-| DIST-004 | NATS or an equivalent behind a messaging abstraction | No. There is no distributed bus. |
-| DIST-005 | Do not require Ray, Maze, Dynamo, or K3s on a single node | The negative half, yes. `tests/security/test_foundation_claims.py` reads `src/freya` and fails if those schedulers are imported. The judgement of when scale would justify them is not a test. |
-| DIST-006 | Losing a node degrades capabilities in a bounded way, without silent corruption | No. Nothing here runs on a second node, so loss of one is not exercised. |
-| DIST-007 | One authoritative control plane per domain; workers take only authenticated, audience-bound assignments | No. Alpha is one installation and one fixed principal. No assignment is sent. |
-| DIST-008 | Ownership transfer uses leases and fencing generations, checked at the protected resource | No. Not built. |
-| DIST-009 | A partitioned worker does no new protected work after its grant is stale, and interrupted work is reconciled before reassignment | No. Not built. |
-| DIST-010 | Consistency is defined separately for identity, task ownership, canonical data, and telemetry; authority is not merged by last-write-wins | No. One database, no peer. |
-
-Nothing in section 12 is claimed as passed acceptance. Federation stays unregistered with the control plane.
-
-## Claims the security suite does prove
-
-These are the local claims the suite names. They are not section 12 principles.
-
-| Claim | Where the baseline puts it | Test |
-| --- | --- | --- |
-| Deny by default: a registered capability with no allow rule does not run | SEC-015, section 6 | `test_a_registered_capability_is_denied_without_a_rule` |
-| Every brokered call leaves an audit entry, including a denial | SEC-007 and OBS-006, sections 6 and 16 | `test_every_brokered_call_has_an_audit_entry` |
-| The audit chain shows a rewritten row | SEC-008, section 6. A local hash chain does not stop a host administrator who can rewrite the file and the triggers; the test shows the chain detects that rewrite | `test_a_rewritten_audit_row_breaks_the_chain` |
-| The gateway's window key works once and is exchanged for a cookie; a missing or invented cookie is refused | Section 14, the loopback gateway profile (ADR-010, ADR-017) | `test_window_key_is_single_use_and_a_cookie_is_required` |
-| The gateway socket is bound to 127.0.0.1 | Same | `test_the_gateway_binds_loopback_only` |
-| A spoken turn's tool call is denied without a grant, is audited, and uses the same tool host as a typed turn | ADR-002, as recorded from the voice gate | `tests/security/test_voice_origin.py` |
-
-Still not proven by this suite, and not claimed: authenticated sessions, revocation of a turn already running, an off-host audit sink, a dedicated service account, obligations and expiry on policy decisions, and any distributed or physical-device test in section 19.
+| # | Principle | Status | What the tests show |
+| --- | --- | --- | --- |
+| 1 | Deny-by-default permissions | Proven by tests | `test_denies_by_default` and `test_deny_overrides_allow` in `tests/test_policy_engine.py`. `test_a_registered_capability_is_denied_without_a_rule` in `tests/security/test_foundation_claims.py`. `test_policy_deny_by_default_passes_on_empty_policy` and `test_policy_deny_by_default_fails_on_wildcard_allow` in `tests/test_security_tools.py`. A spoken tool call with no grant is denied in `test_a_voice_tool_call_is_denied_audited_and_no_wider_than_typed` (`tests/security/test_voice_origin.py`). |
+| 2 | Least-privilege capabilities | Partial | The model is not offered a destructive or owner-only capability (`test_safe_model_tools_pass`, `test_destructive_model_tool_fails`, `test_owner_only_capability_offered_to_the_model_fails`). File tools read only folders the owner opened, refuse a path outside them in the same words, and stay shut for keys and `data/` (`tests/test_file_tools.py`, including `test_nothing_can_be_read_until_a_folder_is_opened` and `test_the_tools_are_read_only_and_can_be_shut_by_policy`). A spoken turn cannot call `code.run` (`test_a_voice_tool_call_is_denied_audited_and_no_wider_than_typed`). The policy engine still ignores the resource argument, one fixed `local-owner` principal holds every seeded capability, and a wildcard allow can still grant a read-only capability (`test_wildcard_rules`). |
+| 3 | Explicit authorization for consequential actions | Partial | `code.run` is denied until a rule the owner adds allows it, is not offered to the model, and is absent when Freya starts (`test_running_code_is_denied_until_the_owner_allows_it`, `test_running_code_is_not_offered_to_the_model`, `test_freya_as_she_starts_has_no_way_to_run_code` in `tests/test_code_sandbox.py`; `test_owner_locks_closed_by_default` and `test_code_run_allowed_fails`). The cloud route is allowed only by the Cloud tab's own switch rule (`test_cloud_route_opened_by_the_owners_switch_passes`, `test_cloud_route_opened_any_other_way_fails`). There is no classification that marks every consequential capability and withholds it from a wildcard or an alpha seed. Image generation and other effectful tools are allowed by those seeds. |
+| 4 | Authenticated users and separated security domains | Not proven | One fixed principal, `local-owner`. The gateway cookie tests (`test_window_key_is_single_use_and_a_cookie_is_required`, `test_nothing_is_served_without_a_session`, `test_window_key_works_exactly_once`) show a loopback session for that one window. They do not show a signed-in user or a boundary between security domains. |
+| 5 | Encrypted storage and secure node communications | Not proven | Databases are ordinary SQLite files. There is no node channel. `test_the_gateway_binds_loopback_only` and `test_local_endpoints_pass_as_shipped` show that the window and the model runtime stay on this machine. They do not show encryption or a protected channel to another node. |
+| 6 | Protected credentials and key management | Partial | Programs Freya starts do not inherit credential-named variables (`test_credentials_are_left_out_and_everything_else_is_passed_on` and `test_no_started_program_inherits_a_credential` in `tests/test_child_environment.py`; `test_child_environment_passes_as_shipped`). Opened folders still hide key and sign-in files (`test_keys_sign_ins_and_freyas_own_data_stay_shut_inside_an_opened_folder`). The window key works once (`test_window_key_works_exactly_once`). There is no secrets service, no key custody, and no encryption of stored credentials. |
+| 7 | Auditable tool execution | Partial | Every brokered call, including a denial, leaves an audit row (`test_every_brokered_call_has_an_audit_entry`). A rewritten row fails verification (`test_a_rewritten_audit_row_breaks_the_chain`; also `test_audit_chain_reports_tampering_as_fail`). A spoken tool call is audited the same way (`test_a_voice_tool_call_is_denied_audited_and_no_wider_than_typed`). The phrase router that turns an image request into generation, and the speech engines after the voice gate has allowed them, still do not each write an audit row. |
+| 8 | Isolation of untrusted software | Partial | A sandbox that can reach the network, see host files, receive credentials, or keep files between runs is refused (`test_a_profile_missing_a_required_property_is_refused` and the request checks in `tests/test_code_sandbox.py`). Freya's startup does not register `code.run`. The container profile has not been run on this PC, and the capability stays unregistered until the owner does that and adds a rule. The avatar package must not import screen capture or input (`test_avatar_isolation_pass`, `test_avatar_isolation_fails_on_screen_api`). |
+| 9 | Protection against untrusted instructions and prompt injection | Partial | A delegation plan with any field outside the fixed lists is refused (`test_a_plan_with_room_for_prose_is_refused`). An instruction planted in delegated material must not be followed (`test_an_instruction_inside_the_material_must_not_be_followed`). The page's content security policy has no `unsafe-inline` or `unsafe-eval` (`test_gateway_csp_has_no_unsafe_directives`). Tool results are still untrusted text the model reads, and there is no test that a hostile tool result cannot move a later turn. |
+| 10 | Revocation of access and permissions | Partial | Removing a rule bumps the grant epoch as well as the revision (`test_rule_changes_bump_revision_and_removal_bumps_grant_epoch`). A removed default rule is not put back by a later start (`test_upgrade_keeps_removed_default_rules_removed`). A cloud authorization works once (`test_an_authorization_works_once`). A rule removed while a turn is already inside a capability does not stop that call. |
+| 11 | Safe cancellation and recovery | Partial | Waiting window turns are dropped on stop and the running turn is bounded (`test_stop_cancels_waiting_turns_and_waits_for_the_running_one`). A dispatch with no outcome is marked unknown-outcome at the next start (`test_start_reconciles_interrupted_operations`, `test_lost_outcome_record_is_reconciled_on_next_start`). Spoken and typed turns do not overlap (`test_turn_gate_lets_spoken_turns_run_only_while_waiting_for_input`). A turn lost mid-flight is not resumed, and there is no cancellation of an effect that has already left the machine. |
+| 12 | Backups, restoration, and rollback | Partial | Databases and settings are copied to another drive, the copy can be opened, the original is left in place, and a same-drive target is refused (`test_databases_and_settings_are_copied_and_can_be_opened`, `test_the_original_is_left_exactly_as_it_was`, `test_a_backup_on_the_same_drive_is_refused` in `tests/test_storage_backup.py`). Nothing here restores a control plane, rolls back a finished consequential action, or checks that a restored grant stays revoked. |
+| 13 | Isolation of compromised nodes or extensions | Not proven | There is no second node and no extension installer in this tree. An offer or a tailnet listing does not enroll a machine (`test_an_offer_is_only_a_suggestion`, `test_being_on_the_tailnet_enrolls_nothing` in `tests/test_federation.py`), and Core does not import federation. Those tests do not show that a compromised node or extension would be contained. |
+| 14 | Physical safety limits for future device control | Not proven | No device control is built. `test_avatar_isolation_fails_on_screen_api` fails if the avatar package gains a screen or input call. It does not define a limit, a stop, or a test for a future device. |
