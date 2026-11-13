@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence
 from zoneinfo import ZoneInfo
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 
 
@@ -538,5 +538,12 @@ def register_claude_plan_capability(
             provider=ANTHROPIC_PLAN_PROVIDER,
             handler=ask,
             category="cloud",
+            declaration=declare(
+                (
+                    "network",
+                    "one brief to the owner's Claude subscription; the brief leaves this machine",
+                ),
+                effect="consequential",
+            ),
         )
     )

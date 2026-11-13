@@ -1,7 +1,10 @@
 from freya.core.capabilities.capability import (
+    CapabilityDeclaration,
     CapabilityDefinition,
     CapabilityExecutionResult,
     CapabilityStatus,
+    ResourceAccess,
+    declare,
 )
 
 from freya.core.capabilities.registry import (
@@ -21,7 +24,10 @@ __all__ = [
     "BrokerResult",
     "CapabilityBroker",
     "Principal",
+    "CapabilityDeclaration",
     "CapabilityDefinition",
+    "ResourceAccess",
+    "declare",
     "CapabilityExecutionResult",
     "CapabilityStatus",
     "CapabilityRegistry",

@@ -15,6 +15,7 @@ from freya.core.capabilities import (
     CapabilityDefinition,
     CapabilityRegistry,
     CapabilityStatus,
+    declare,
 )
 from freya.core.capabilities import broker as broker_module
 from freya.core.persistence import ControlStore
@@ -76,6 +77,7 @@ def registry(calls):
                 description="Test capability.",
                 provider="test-provider",
                 handler=handler,
+                declaration=declare(("none", "test fixture, no resource")),
             )
         )
 
@@ -86,6 +88,7 @@ def registry(calls):
             provider="test-provider",
             handler=read_time,
             status=CapabilityStatus.UNAVAILABLE,
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
     return registry

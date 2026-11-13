@@ -9,6 +9,7 @@ from freya.core.capabilities import (
     CapabilityRegistry,
     CapabilityStatus,
     Principal,
+    declare,
 )
 from freya.core.persistence import ControlStore
 from freya.core.policy import SqlitePolicyEngine
@@ -43,13 +44,21 @@ def registry(calls):
         ("system.broken", explode, {}),
         ("files.delete", explode, {"destructive": True}),
     ]:
+        fields = dict(extra)
+        fields.setdefault(
+            "declaration",
+            declare(
+                ("none", "test fixture, no resource"),
+                effect="consequential" if fields.get("destructive") else "read-only",
+            ),
+        )
         registry.register(
             CapabilityDefinition(
                 name=name,
                 description="Test capability.",
                 provider="test-provider",
                 handler=handler,
-                **extra,
+                **fields,
             )
         )
 
@@ -322,6 +331,7 @@ def test_streamed_result_is_audited_when_the_stream_ends(
             description="Test capability.",
             provider="test-provider",
             handler=count,
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
     policy.add_rule("local-owner", "stream.count", "allow", "Test allow.")
@@ -354,6 +364,7 @@ def test_stream_that_fails_or_is_abandoned_is_recorded(
             description="Test capability.",
             provider="test-provider",
             handler=breaks,
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
     policy.add_rule("local-owner", "stream.breaks", "allow", "Test allow.")

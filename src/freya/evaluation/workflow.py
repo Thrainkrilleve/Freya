@@ -103,7 +103,12 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
     import ollama
     from freya.core.assistant import FreyaAssistant
     from freya.core.audit import SqliteAuditLog
-    from freya.core.capabilities import CapabilityBroker, CapabilityDefinition, CapabilityRegistry
+    from freya.core.capabilities import (
+        CapabilityBroker,
+        CapabilityDefinition,
+        CapabilityRegistry,
+        declare,
+    )
     from freya.core.model_runtime import LLM_BACKGROUND_CHAT, ROLE_BACKGROUND, ModelRuntime, configure_model_runtime
     from freya.core.persistence import ControlStore
     from freya.core.policy import SqlitePolicyEngine
@@ -200,7 +205,13 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
             registry.register(CapabilityDefinition(
                 name="image.generate", provider=SYSTEM_TOOLS_PROVIDER,
                 description="Generates a picture from a text prompt and shows it in the Images tab.",
-                handler=image, metadata={MODEL_TOOL: True, TOOL_PARAMETERS: {
+                handler=image, requires_gpu=True,
+                declaration=declare(
+                    ("gpu", "a synthetic picture; the trial writes no file"),
+                    requires=("gpu",),
+                    effect="consequential",
+                ),
+                metadata={MODEL_TOOL: True, TOOL_PARAMETERS: {
                     "prompt": {"description": "The picture to generate.", "max_length": 1000},
                 }},
             ))
@@ -217,6 +228,10 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
             registry.register(CapabilityDefinition(
                 name="model.record.read", provider=SYSTEM_TOOLS_PROVIDER,
                 description=MODEL_RECORD_DESCRIPTION,
+                declaration=declare((
+                    "filesystem",
+                    "a made-up model record of counts and timings",
+                )),
                 handler=lambda: abilities_for_model(
                     measured, model, [model], {RECORD_CLOUD_ROUTE: True},
                 ),
@@ -255,6 +270,10 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
                 registry.register(CapabilityDefinition(
                     name="work.delegate", provider=SYSTEM_TOOLS_PROVIDER,
                     description=WORK_DELEGATE_DESCRIPTION, handler=delegate,
+                    declaration=declare(
+                        ("network", "a synthetic cloud answer; nothing leaves this machine"),
+                        effect="consequential",
+                    ),
                     metadata={MODEL_TOOL: True, TOOL_PARAMETERS: WORK_DELEGATE_PARAMETERS},
                 ))
                 delegation_sentence = " " + delegation_hint(offered)
@@ -290,6 +309,10 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
                 registry.register(CapabilityDefinition(
                     name="cloud.settings.tighten", provider=SYSTEM_TOOLS_PROVIDER,
                     description=TIGHTEN_DESCRIPTION, handler=tighten,
+                    declaration=declare((
+                        "none",
+                        "asks for a stricter setting; this trial changes nothing",
+                    )),
                     metadata={MODEL_TOOL: True, TOOL_PARAMETERS: TIGHTEN_PARAMETERS},
                 ))
             denied = {
@@ -308,6 +331,10 @@ def run_trial(scenario, folder, model, embedding_model, request_timeout, backgro
             registry.register(CapabilityDefinition(
                 name="conversation.recall", provider=SYSTEM_TOOLS_PROVIDER,
                 description="Looks up passages from earlier conversations.",
+                declaration=declare((
+                    "memory",
+                    "synthetic conversation text for this trial",
+                )),
                 handler=assistant.recall, metadata={MODEL_TOOL: True, TOOL_PARAMETERS: {
                     "query": {"description": "Words to search for.", "max_length": 200},
                 }},

@@ -3,7 +3,7 @@ import threading
 import time
 from typing import Callable, List, Optional
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 from freya.spatial_avatar import PROTOCOL_VERSION
 from freya.spatial_avatar import commands as c
@@ -219,6 +219,10 @@ class AvatarService:
                 provider=AVATAR_PROVIDER,
                 handler=self._display,
                 category="avatar",
+                declaration=declare(
+                    ("process", "the on-screen avatar window's place, size and style"),
+                    effect="consequential",
+                ),
             ),
             CapabilityDefinition(
                 name=SCREEN_GEOMETRY,
@@ -230,6 +234,10 @@ class AvatarService:
                 provider=AVATAR_PROVIDER,
                 handler=self._geometry,
                 category="avatar",
+                declaration=declare((
+                    "device",
+                    "the positions and sizes of the displays, not what they show",
+                )),
             ),
             CapabilityDefinition(
                 name=AVATAR_POINT,
@@ -241,6 +249,10 @@ class AvatarService:
                 provider=AVATAR_PROVIDER,
                 handler=self._point,
                 category="avatar",
+                declaration=declare(
+                    ("process", "where the on-screen avatar points"),
+                    effect="consequential",
+                ),
             ),
             CapabilityDefinition(
                 name=AVATAR_LIBRARY,
@@ -252,6 +264,13 @@ class AvatarService:
                 provider=AVATAR_PROVIDER,
                 handler=self._library,
                 category="avatar",
+                declaration=declare(
+                    (
+                        "filesystem",
+                        "names in the avatar folder, and the owner's saved avatar list",
+                    ),
+                    effect="consequential",
+                ),
             ),
             CapabilityDefinition(
                 name=AVATAR_SEARCH,
@@ -263,6 +282,10 @@ class AvatarService:
                 provider=AVATAR_PROVIDER,
                 handler=self._search,
                 category="avatar",
+                declaration=declare((
+                    "filesystem",
+                    "file names in the owner's avatar search folders",
+                )),
             ),
             CapabilityDefinition(
                 name=AVATAR_PREPARE,
@@ -275,6 +298,17 @@ class AvatarService:
                 provider=AVATAR_PROVIDER,
                 handler=self._prepare,
                 category="avatar",
+                declaration=declare(
+                    (
+                        "filesystem",
+                        "a copy written into Freya's avatar folder; the original is not changed",
+                    ),
+                    (
+                        "process",
+                        "Blender, when a character file has to be converted",
+                    ),
+                    effect="consequential",
+                ),
             ),
         ]
 

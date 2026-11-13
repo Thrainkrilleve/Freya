@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 from typing import Callable, Iterable, List, Sequence
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 from freya.tools.model_tools import MODEL_TOOL, TOOL_PARAMETERS
 
@@ -568,6 +568,10 @@ def register_file_reader_capabilities(registry, reader: FileReader) -> None:
             provider=FILE_READER_PROVIDER,
             handler=reader.list,
             category="files",
+            declaration=declare((
+                "filesystem",
+                "names inside folders the owner has opened, and no path outside them",
+            )),
             metadata={MODEL_TOOL: True, TOOL_PARAMETERS: {"path": path}},
         )
     )
@@ -586,6 +590,10 @@ def register_file_reader_capabilities(registry, reader: FileReader) -> None:
             provider=FILE_READER_PROVIDER,
             handler=reader.read,
             category="files",
+            declaration=declare((
+                "filesystem",
+                "text of one ordinary file inside a folder the owner has opened",
+            )),
             metadata={
                 MODEL_TOOL: True,
                 TOOL_PARAMETERS: {
@@ -614,6 +622,10 @@ def register_file_reader_capabilities(registry, reader: FileReader) -> None:
             provider=FILE_READER_PROVIDER,
             handler=reader.search,
             category="files",
+            declaration=declare((
+                "filesystem",
+                "lines inside folders the owner has opened, and no path outside them",
+            )),
             metadata={
                 MODEL_TOOL: True,
                 TOOL_PARAMETERS: {

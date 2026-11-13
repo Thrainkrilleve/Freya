@@ -5,7 +5,7 @@ import time
 from collections import OrderedDict
 from pathlib import Path, PurePosixPath
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 from freya.media import files
 from freya.media.analysis import visual_status
@@ -195,6 +195,47 @@ class MediaService:
         }
         handlers = {name: (lambda request, _name=name: self._run(_name, request)) for name in described}
 
+        declarations = {
+            MEDIA_READ: declare((
+                "memory",
+                "the media catalog, notes, summaries and jobs",
+            )),
+            MEDIA_WRITE: declare(
+                ("memory", "the media catalog, bookmarks, notes, tags and transcripts"),
+                effect="consequential",
+            ),
+            MEDIA_SCAN: declare((
+                "filesystem",
+                "names in the owner's configured media folders",
+            )),
+            MEDIA_PLAY: declare(
+                ("memory", "a playback ticket for one catalog item"),
+                effect="consequential",
+            ),
+            MEDIA_JELLYFIN: declare((
+                "network",
+                "the configured Jellyfin server, catalog text only",
+            )),
+            MEDIA_DISCOVER: declare((
+                "network",
+                "the configured official video search",
+            )),
+            MEDIA_ANALYZE: declare(
+                ("memory", "a job that reads a media item's soundtrack"),
+                ("gpu", "a local speech model while analysis runs, when one is used"),
+                effect="consequential",
+            ),
+            MEDIA_EXPORT: declare(
+                ("filesystem", "JSON and Markdown written for one media item"),
+                effect="consequential",
+            ),
+            MEDIA_DELETE: declare(
+                ("memory", "one media record and what was derived from it"),
+                ("filesystem", "files derived from that record"),
+                effect="consequential",
+            ),
+        }
+
         for name, description in described.items():
             yield CapabilityDefinition(
                 name=name,
@@ -203,6 +244,7 @@ class MediaService:
                 handler=handlers[name],
                 category="media",
                 destructive=name == MEDIA_DELETE,
+                declaration=declarations[name],
             )
 
         yield CapabilityDefinition(
@@ -218,6 +260,10 @@ class MediaService:
             provider=MEDIA_PROVIDER,
             handler=self.recall,
             category="media",
+            declaration=declare((
+                "memory",
+                "transcripts, summaries and notes stored about media",
+            )),
             metadata={
                 MODEL_TOOL: bool(offer_recall),
                 TOOL_PARAMETERS: {

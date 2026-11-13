@@ -2,6 +2,7 @@ import ollama as ollama_library
 
 from freya.core.capabilities import (
     CapabilityDefinition,
+    declare,
 )
 from freya.core.model_runtime import (
     LLM_BACKGROUND_CHAT,
@@ -332,5 +333,10 @@ def register_ollama_capabilities(
                 handler=handler,
                 category="llm",
                 requires_gpu=True,
+                declaration=declare(
+                    ("network", "Ollama on 127.0.0.1 only"),
+                    ("gpu", "the local model's weights while it answers"),
+                    requires=("gpu",),
+                ),
             )
         )

@@ -4,6 +4,7 @@ from freya.core.capabilities import (
     CapabilityDefinition,
     CapabilityRegistry,
     CapabilityStatus,
+    declare,
 )
 from freya.core.providers import (
     ProviderDefinition,
@@ -52,6 +53,7 @@ def capabilities(providers, calls):
             description="Test capability.",
             provider="ollama-local",
             handler=lambda: calls.append(1) or "ok",
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
     return registry
@@ -114,6 +116,7 @@ def test_unregistered_provider_makes_capability_unavailable(providers, calls):
             description="Test capability.",
             provider="comfyui-local",
             handler=lambda: calls.append(1),
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
 
@@ -188,6 +191,7 @@ def test_without_provider_registry_only_own_status_counts():
             description="Test capability.",
             provider="never-registered",
             handler=lambda: "ok",
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
 

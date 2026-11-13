@@ -7,6 +7,7 @@ import psutil
 from freya.child_environment import child_environment
 from freya.core.capabilities import (
     CapabilityDefinition,
+    declare,
 )
 from freya.core.providers import (
     ProviderDefinition,
@@ -322,6 +323,10 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_system_info,
             category="system",
+            declaration=declare((
+                "device",
+                "this computer's name, operating system, architecture and Python version",
+            )),
             metadata={
                 MODEL_TOOL: True,
             },
@@ -344,6 +349,10 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_disk_info,
             category="system",
+            declaration=declare((
+                "filesystem",
+                "free and used space of each mounted drive",
+            )),
             metadata={
                 MODEL_TOOL: True,
             },
@@ -367,6 +376,10 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_gpu_info,
             category="system",
+            declaration=declare((
+                "gpu",
+                "the graphics card's temperature, utilization and memory use",
+            )),
             metadata={
                 MODEL_TOOL: True,
             },
@@ -389,6 +402,10 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_cpu_info,
             category="system",
+            declaration=declare((
+                "device",
+                "the processor's utilization, core count and clock speed",
+            )),
             metadata={
                 MODEL_TOOL: True,
             },
@@ -411,6 +428,10 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_memory_info,
             category="system",
+            declaration=declare((
+                "device",
+                "how much system memory is in use",
+            )),
             metadata={
                 MODEL_TOOL: True,
             },
@@ -438,6 +459,10 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_hardware_inventory,
             category="system",
+            declaration=declare((
+                "device",
+                "the installed motherboard, processor, memory, disks, graphics, network and audio devices",
+            )),
             metadata={
                 MODEL_TOOL: True,
             },
@@ -463,6 +488,16 @@ def register_system_tools(
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_sensor_readings,
             category="system",
+            declaration=declare(
+                (
+                    "network",
+                    "LibreHardwareMonitor on 127.0.0.1 only",
+                ),
+                (
+                    "device",
+                    "temperatures, fans and power readings",
+                ),
+            ),
             metadata={
                 MODEL_TOOL: True,
             },

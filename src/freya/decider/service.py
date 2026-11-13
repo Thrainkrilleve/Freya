@@ -12,7 +12,7 @@ Freya asks it anything yet. A test checks all three.
 import time
 from typing import Dict, Optional
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 from freya.decider.contract import (
     Decider,
@@ -91,5 +91,9 @@ def register_decide(registry, decider: Decider, points: Optional[Dict[str, Decis
             provider=DECIDER_PROVIDER,
             handler=decide,
             category="decision",
+            declaration=declare((
+                "none",
+                "the text of one registered question, which is not stored",
+            )),
         )
     )

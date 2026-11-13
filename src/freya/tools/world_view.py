@@ -29,7 +29,7 @@ import urllib.request
 import webbrowser
 from typing import Callable, Optional
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 from freya.tools.model_tools import MODEL_TOOL, TOOL_PARAMETERS
 
@@ -518,6 +518,21 @@ def register_world_view_capabilities(registry, view: WorldView) -> None:
         if parameters:
             metadata[TOOL_PARAMETERS] = parameters
 
+        if name == WORLD_SHOW:
+            declaration = declare(
+                ("network", "God's Eye View on this machine only"),
+                (
+                    "process",
+                    "opens that program's own page in the browser",
+                ),
+                effect="consequential",
+            )
+        else:
+            declaration = declare((
+                "network",
+                "God's Eye View on this machine only; public feeds, no picture",
+            ))
+
         registry.register(
             CapabilityDefinition(
                 name=name,
@@ -526,6 +541,7 @@ def register_world_view_capabilities(registry, view: WorldView) -> None:
                 handler=handler,
                 category="world",
                 metadata=metadata,
+                declaration=declaration,
             )
         )
 

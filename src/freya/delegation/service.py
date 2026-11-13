@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Callable, Iterable, List, Optional, Tuple
 
 from freya.config import BACKGROUND_MODEL, CONTEXT_WINDOW_TOKENS, MODEL
-from freya.core.capabilities import LOCAL_OWNER, CapabilityDefinition
+from freya.core.capabilities import LOCAL_OWNER, CapabilityDefinition, declare
 from freya.core.persistence import ControlStore
 from freya.core.policy import seed_alpha_policy
 from freya.core.providers import ProviderDefinition
@@ -475,6 +475,10 @@ def build_cloud_delegation(
             provider=MODEL_RECORD_PROVIDER,
             handler=cloud.abilities_for_model,
             category="model",
+            declaration=declare((
+                "filesystem",
+                "counts and timings in the model record",
+            )),
             metadata={MODEL_TOOL: True},
         )
     )
@@ -511,6 +515,10 @@ def build_cloud_delegation(
             provider=CLOUD_SETTINGS_PROVIDER,
             handler=lambda request: apply_cloud_change(cloud, request),
             category="cloud",
+            declaration=declare(
+                ("filesystem", "the owner's cloud settings file"),
+                effect="consequential",
+            ),
         )
     )
     seed_alpha_policy(
@@ -610,6 +618,13 @@ def build_turn_delegation(
             provider=DELEGATION_PROVIDER,
             handler=delegation.delegate,
             category="cloud",
+            declaration=declare(
+                (
+                    "network",
+                    "one brief to a cloud model the owner has switched on",
+                ),
+                effect="consequential",
+            ),
             metadata={
                 MODEL_TOOL: True,
                 TOOL_PARAMETERS: WORK_DELEGATE_PARAMETERS,
@@ -646,6 +661,10 @@ def build_turn_delegation(
             provider=DELEGATION_PROVIDER,
             handler=tightener.tighten,
             category="cloud",
+            declaration=declare((
+                "filesystem",
+                "reads cloud settings so a stricter choice can be asked for",
+            )),
             metadata={
                 MODEL_TOOL: True,
                 TOOL_PARAMETERS: TIGHTEN_PARAMETERS,

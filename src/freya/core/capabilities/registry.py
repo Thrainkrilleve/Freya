@@ -1,6 +1,7 @@
 from typing import Dict, List, Optional
 
 from freya.core.capabilities.capability import (
+    CapabilityDeclaration,
     CapabilityDefinition,
     CapabilityExecutionResult,
     CapabilityStatus,
@@ -12,6 +13,40 @@ from freya.core.providers.provider import (
 from freya.core.providers.registry import (
     ProviderRegistry,
 )
+
+
+def _require_complete(capability: CapabilityDefinition) -> None:
+    """
+    Refuse a capability that does not say what it does, what it
+    touches, what it needs, and whether it only reads.
+    """
+    name = capability.name.strip() or "(unnamed)"
+
+    if not capability.description or not capability.description.strip():
+        raise ValueError(
+            f"Capability {name} needs a description of what it does."
+        )
+
+    declaration = capability.declaration
+
+    if not isinstance(declaration, CapabilityDeclaration):
+        raise ValueError(
+            f"Capability {name} needs a declaration of what it "
+            "accesses, what it requires, and whether it is "
+            "read-only or consequential."
+        )
+
+    if capability.requires_gpu and "gpu" not in declaration.requires:
+        raise ValueError(
+            f"Capability {name} sets requires_gpu but does not "
+            "declare gpu as required."
+        )
+
+    if capability.destructive and not declaration.consequential:
+        raise ValueError(
+            f"Capability {name} is destructive, so its effect "
+            "must be consequential."
+        )
 
 
 class CapabilityRegistry:
@@ -82,9 +117,12 @@ class CapabilityRegistry:
         unless replace=True, so one provider cannot
         silently take over another's capability.
 
-        Registration is all-or-nothing: when the name or
-        any alias conflicts, the registry is unchanged.
+        Registration is all-or-nothing: when the declaration
+        is incomplete, or the name or any alias conflicts, the
+        registry is unchanged.
         """
+
+        _require_complete(capability)
 
         name = self._normalize_name(
             capability.name
@@ -443,6 +481,11 @@ class CapabilityRegistry:
                     ),
                     "destructive": (
                         capability.destructive
+                    ),
+                    "declaration": (
+                        capability.declaration.as_dict()
+                        if capability.declaration is not None
+                        else None
                     ),
                     "aliases": list(
                         capability.aliases

@@ -4,15 +4,28 @@ from freya.core.capabilities import (
     CapabilityDefinition,
     CapabilityRegistry,
     CapabilityStatus,
+    declare,
 )
 
 
 def make_capability(name="llm.chat", handler=None, **overrides):
+    if "declaration" in overrides:
+        declaration = overrides.pop("declaration")
+    else:
+        declaration = declare(
+            ("none", "test fixture, no resource"),
+            requires=("gpu",) if overrides.get("requires_gpu") else (),
+            effect=(
+                "consequential" if overrides.get("destructive") else "read-only"
+            ),
+        )
+
     return CapabilityDefinition(
         name=name,
         description="Test capability.",
         provider="test-provider",
         handler=handler or (lambda *args, **kwargs: "ok"),
+        declaration=declaration,
         **overrides,
     )
 
@@ -316,6 +329,11 @@ def test_describe_capabilities_is_serializable_snapshot(registry):
             "status": "degraded",
             "requires_gpu": True,
             "destructive": True,
+            "declaration": declare(
+                ("none", "test fixture, no resource"),
+                requires=("gpu",),
+                effect="consequential",
+            ).as_dict(),
             "aliases": ["chat"],
             "optional_dependencies": ["gpu"],
             "metadata": {"model": "test"},
