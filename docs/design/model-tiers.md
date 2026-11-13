@@ -5,8 +5,8 @@ built.** It approves no ADR, adopts no pending amendment, and assigns no require
 ID. Requirements carry the provisional labels **NEW-CV to NEW-DA**
 (`docs/labels.md`); acceptance tests carry **TIER-1 to TIER-8**. It builds on
 `skill-learning.md` (NEW-BW to NEW-CG), which is itself a proposal, and refers to
-`local-decider.md` (NEW-CI to NEW-CU, open PR #47). Nothing here works without the
-NEW-BW skill files and the NEW-CB gate.
+`local-decider.md` (NEW-CI to NEW-CU, proposal, not adopted). Nothing here works
+without the NEW-BW skill files and the NEW-CB gate.
 
 ## 1. Why
 

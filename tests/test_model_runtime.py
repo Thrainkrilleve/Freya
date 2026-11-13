@@ -157,6 +157,42 @@ def test_json_helpers_use_the_runtime(plane, fake_ollama):
     result = llm.rerank_memory_candidates("a question", candidates)
 
     assert result["relevant_ids"] == [2]
+
+
+def test_rerank_prompt_keeps_caller_text_after_the_instructions(plane, fake_ollama):
+    fake_ollama.reply = '{"relevant_ids": [], "reason": "none"}'
+    query = "select * from memories; --"
+    content = "insert into secrets values ('x')"
+
+    llm.rerank_memory_candidates(
+        query,
+        [{
+            "id": 7,
+            "type": "fact",
+            "key": "cat_name",
+            "similarity": 0.5,
+            "content": content,
+        }],
+        max_results=2,
+    )
+
+    message = fake_ollama.calls[0][2][0]["content"]
+    head, marker, tail = message.partition("User message:\n")
+
+    assert marker
+    assert "select ONLY the memories" in head
+    assert "from the supplied candidates" in head
+    assert "Return at most 2 memory IDs." in head
+    assert '"relevant_ids": [1]' in head
+    assert query not in head and content not in head
+    assert tail == (
+        query
+        + "\n\nCandidate memories:\n"
+        + "ID: 7\nType: fact\nKey: cat_name\nSimilarity: 0.5000\n"
+        + "Content: "
+        + content
+        + "\n"
+    )
     assert fake_ollama.calls[0][4] == {
         "format": "json", "options": {"num_ctx": 16384},
     }

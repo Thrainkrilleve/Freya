@@ -411,6 +411,43 @@ def test_usage_survives_reopening(tmp_path):
         second.close()
 
 
+def test_route_unit_and_task_are_bound_values_in_the_usage_query(ledger):
+    # Names that would break or widen a query if they were pasted
+    # into the SQL. They are data: only this route's rows count,
+    # and only the named task counts against its own cap.
+    route = "plan' OR '1'='1"
+    other = "other' OR route != '"
+    unit = "units'); DROP TABLE usage_event;--"
+    task = "task' OR task_id != '"
+
+    ledger.set_limit(
+        route, "week", SCOPE_PERIOD, unit, 700,
+        period_seconds=WEEK, resets_at=RESET, hard=True, now=day(1, 0),
+    )
+    ledger.set_limit(
+        other, "week", SCOPE_PERIOD, unit, 700,
+        period_seconds=WEEK, resets_at=RESET, hard=True, now=day(1, 0),
+    )
+    ledger.set_limit(route, "task", SCOPE_TASK, unit, 50)
+
+    spend(ledger, 40, day(1), task=task, route=route, unit=unit)
+    spend(ledger, 15, day(1), task="other-task", route=route, unit=unit)
+    spend(ledger, 25, day(1), task=task, route=other, unit=unit)
+
+    def used(which):
+        return next(
+            item.used
+            for item in ledger.status(which, now=day(1))
+            if item.name == "week"
+        )
+
+    assert used(route) == 55
+    assert used(other) == 25
+    assert ledger.assess(route, unit, 20, task, now=day(1)).verdict == ASK
+    assert ledger.assess(route, unit, 20, "other-task", now=day(1)).verdict == GO
+    assert ledger.assess(other, unit, 1, task, now=day(1)).verdict == GO
+
+
 def test_an_open_reservation_counts_now_and_a_stale_one_only_where_it_was_made(weekly):
     # A send under way counts in whatever window is asked about.
     open_now = weekly.reserve(PLAN, "units", 60, "t", now=day(1))

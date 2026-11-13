@@ -610,7 +610,10 @@ def rerank_memory_candidates(
         candidate_lines
     )
 
-    prompt = f"""
+    # The instructions say "select" and "from". They are not a query,
+    # and the caller's text is appended afterwards rather than
+    # formatted into that wording.
+    instructions = """
 You are Freya's long-term memory relevance reranker.
 
 Your job is READ-ONLY.
@@ -640,29 +643,37 @@ Important rules:
 - It is valid to select no memories.
 - Do not invent facts.
 - Do not modify memories.
-- Return at most {max_results} memory IDs.
+- Return at most """
+    after_limit = """ memory IDs.
 - IDs must come only from the supplied candidates.
 
 Return ONLY valid JSON in this form:
 
-{{
+{
     "relevant_ids": [1],
     "reason": "Memory 1 directly answers the user's question."
-}}
+}
 
 If none are relevant:
 
-{{
+{
     "relevant_ids": [],
     "reason": "None of the candidate memories are relevant."
-}}
+}
 
 User message:
-{query}
-
-Candidate memories:
-{candidates_text}
 """
+    prompt = "".join(
+        [
+            instructions,
+            f"{max_results}",
+            after_limit,
+            f"{query}",
+            "\n\nCandidate memories:\n",
+            candidates_text,
+            "\n",
+        ]
+    )
 
     result = get_model_runtime().chat(
         [

@@ -866,5 +866,5 @@ sandbox before ordinary use; self-coding only as pull requests with a protected 
 Build step 1 is done: the gate (`freya.evaluation.gate`) for hint and model changes.
 Next: step 2, the skill format, loader and matcher with three skills the owner writes.
 The next proposal starts
-at NEW-CH; `docs/labels.md` is the register, and `tests/test_labels.py` fails on a
-label defined twice or not registered.
+at NEW-EB; `docs/labels.md` is the register, and `tests/test_labels.py` fails on a
+label defined twice or not registered. NEW-CH stays unused.
