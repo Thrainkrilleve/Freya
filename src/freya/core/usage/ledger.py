@@ -79,16 +79,6 @@ STALE_RESERVATION_SECONDS = 2 * 3600
 
 _TIME_FORMAT = "%Y-%m-%dT%H:%M:%S.%fZ"
 
-# What an event counts for: the provider's figure once it is known,
-# the full estimate while it is not, and nothing if it was never sent.
-_COUNTED = """
-    CASE state
-        WHEN 'settled' THEN reported
-        WHEN 'released' THEN 0
-        ELSE estimated
-    END
-"""
-
 
 def _stamp(moment: datetime) -> str:
     if moment.tzinfo is None:
@@ -552,29 +542,53 @@ class UsageLedger:
         stale = _stamp(now - timedelta(seconds=STALE_RESERVATION_SECONDS))
 
         def used(since=None, until=None, task=None):
-            clauses, parameters = ["unit = ?"], [row["unit"]]
-
-            if routes is not None:
-                clauses.append("route = ?")
-                parameters.append(routes)
-            if since is not None:
-                clauses.append(
-                    "(recorded_at >= ? OR (state = 'reserved' AND recorded_at >= ?))"
-                )
-                parameters.extend([_stamp(since), stale])
-            if until is not None:
-                clauses.append(
-                    "(recorded_at < ? AND (state != 'reserved' OR recorded_at < ?))"
-                )
-                parameters.extend([_stamp(until), stale])
-            if task is not None:
-                clauses.append("task_id = ?")
-                parameters.append(task)
-
+            # One statement. Each flag turns a window on, and every
+            # name and time is bound, so none of them can change the
+            # query. An event counts as the provider's figure once it
+            # is known, the full estimate while it is not, and nothing
+            # if the call was never sent.
             return connection.execute(
-                f"SELECT COALESCE(SUM({_COUNTED}), 0) FROM usage_event "
-                f"WHERE {' AND '.join(clauses)}",
-                parameters,
+                """
+                SELECT COALESCE(SUM(
+                    CASE state
+                        WHEN 'settled' THEN reported
+                        WHEN 'released' THEN 0
+                        ELSE estimated
+                    END
+                ), 0)
+                FROM usage_event
+                WHERE unit = ?
+                  AND (? = 1 OR route = ?)
+                  AND (
+                        ? = 0
+                        OR recorded_at >= ?
+                        OR (state = 'reserved' AND recorded_at >= ?)
+                      )
+                  AND (
+                        ? = 0
+                        OR (
+                            recorded_at < ?
+                            AND (
+                                state != 'reserved'
+                                OR recorded_at < ?
+                            )
+                        )
+                      )
+                  AND (? = 0 OR task_id = ?)
+                """,
+                (
+                    row["unit"],
+                    1 if routes is None else 0,
+                    "" if routes is None else routes,
+                    1 if since is not None else 0,
+                    _stamp(since) if since is not None else "",
+                    stale,
+                    1 if until is not None else 0,
+                    _stamp(until) if until is not None else "",
+                    stale,
+                    1 if task is not None else 0,
+                    "" if task is None else task,
+                ),
             ).fetchone()[0]
 
         common = dict(
