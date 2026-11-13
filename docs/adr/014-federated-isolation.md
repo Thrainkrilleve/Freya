@@ -1,10 +1,10 @@
 # ADR-014: Federated Isolation
 
-**Status: Proposed by owner, not approved.** Written 2026-11-13, and amended the
-same day with OCI packaging and an optional Cloudflare route. This records the
-owner's decision so it can be read, argued with and approved or reversed. It does
-not claim the decision is validated, and no acceptance test is passed by it.
-Nothing here enables untrusted execution or registers `code.run`. Baseline:
+**Status: Accepted by owner, 2026-11-13.** Written 2026-11-13, and amended the
+same day with OCI packaging and an optional Cloudflare route. Accepting this
+record does not enable `code.run`, which stays unregistered until a tier
+profile is implemented and validated. It does not claim the decision is
+validated, and no acceptance test is passed by it. Baseline:
 *Freya Foundation v1.1*, section 22. The baseline titles this record Windows Alpha
 Trust and Isolation.
 
@@ -111,8 +111,8 @@ and virtualization prerequisites, a Hyper-V guest, and one Core service identity
 Those remain the Windows T1 case. OCI runtimes and an off-by-default Cloudflare
 route sit under the same tier rules. Plain `runc` is not an equivalent profile.
 SEC-013 already says Hyper-V is not a permanent architecture dependency, and
-that another profile needs an ADR and its own tests before it may run. This
-file is that proposal. Approval stays the owner's.
+that another profile needs an ADR and its own tests before it may run. The
+owner accepted this record on 2026-11-13.
 
 **Validation owed:** No tier is validated. Before any tier may run, the baseline
 acceptance tests still apply: TEST-006 (a guest must not read Core files or

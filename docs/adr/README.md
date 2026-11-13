@@ -3,9 +3,9 @@
 ADR-001 to ADR-018 are named in *Freya Foundation v1.1*, section 22, each as one line
 "pending completion and approval". These files record, for each, what the code on
 the release line has already decided, where, how it departs from the baseline, and
-what validation is still owed. ADR-014 records the owner's proposal; its status
-line says so. **None is approved.** Approval is the owner's, ADR by ADR, and
-changes the status line of that file only.
+what validation is still owed. ADR-014 is accepted by the owner (2026-11-13);
+its status line says so. The others are not approved. Approval is the owner's,
+ADR by ADR, and changes the status line of that file only.
 
 Written 2026-10-22 as Week 2's main task of the reconciliation plan, done early.
 Reconciled to the code monthly (owner decision, 2026-10-21: the tests are
@@ -26,13 +26,13 @@ authoritative, the spec follows).
 | [ADR-011](011-existing-infrastructure-first.md) | Existing infrastructure first | Yes | Record a policy-engine evaluation |
 | [ADR-012](012-durable-workflow-abstraction.md) | Durable workflows | No | Decide whether the alpha needs them |
 | [ADR-013](013-invocation-authorization-revocation.md) | Invocation authorization | Yes, single principal | Waits on 017 |
-| [ADR-014](014-federated-isolation.md) | Per-node isolation tiers | No; execution stays off | Per-tier containment and enrollment probes |
+| [ADR-014](014-federated-isolation.md) | Per-node isolation tiers; accepted 2026-11-13 | No; `code.run` stays off | Per-tier containment and enrollment probes |
 | [ADR-015](015-persistence-recovery.md) | Persistence and recovery | Yes, unencrypted | A timed restore drill |
 | [ADR-016](016-resource-admission-ownership.md) | Resource admission | Cloud usage yes; GPU no | GPU reservations |
 | [ADR-017](017-gateway-authentication-compatibility.md) | Gateway authentication | First step only | Next architecture piece |
 | [ADR-018](018-external-effects-reconciliation.md) | External effects | Yes, for cloud sends | Restore older than a send |
 
-**ADR-014** is proposed by the owner and not approved: each node proves an
-isolation tier at enrollment, and untrusted execution stays off until that
-profile is implemented and validated. **ADR-012** remains the owner's before
+**ADR-014** is accepted by the owner on 2026-11-13. Accepting it does not
+enable `code.run`, which stays unregistered until a tier profile is implemented
+and validated. **ADR-012** remains the owner's before
 anything can be validated: whether the alpha needs durable workflows at all.
