@@ -46,7 +46,9 @@ Acceptance:
 
 ### C-2 · Make the test suite pass on a clean Windows runner
 
-Status: Ready (after the guardrails PR merges, so the CI workflow exists)
+Status: In review — PR #37 (the three image-tool tests and the live-machine test; the
+remaining machine-dependent tests are marked and skipped in a follow-up on the
+release line). The owner must confirm the suite on the workstation.
 
 Some tests depend on what is installed on the developer's machine. For example, the
 `plane` fixture in `tests/test_model_tools.py` registers the real ComfyUI provider, and

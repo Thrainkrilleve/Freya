@@ -6,6 +6,7 @@ from freya.control_plane import build_local_control_plane
 from freya.core.assistant import MAX_TOOL_CALLS, MAX_TOOL_ROUNDS, FreyaAssistant
 from freya.core.capabilities import CapabilityDefinition, CapabilityStatus
 from freya.memory import memory_manager
+from freya.core.providers import ProviderHealth
 from freya.providers.image.comfyui import COMFYUI_PROVIDER
 from freya.tools.model_tools import (
     MODEL_TOOL,
@@ -64,8 +65,11 @@ def stream_calls(fake_ollama):
 def comfyui_can_start(plane):
     # Image generation is offered only while ComfyUI is running or can
     # be started; whether it can depends on Comfy Desktop being
-    # installed on this machine, which the tests must not rely on.
-    plane.providers.get(COMFYUI_PROVIDER).metadata["can_start"] = True
+    # installed on this machine, which the tests must not rely on. The
+    # health check is replaced too, so no test touches 127.0.0.1:8188.
+    provider = plane.providers.get(COMFYUI_PROVIDER)
+    provider.metadata["can_start"] = True
+    provider.health_handler = lambda: ProviderHealth.UNHEALTHY
 
 
 def test_only_marked_capabilities_are_offered(plane):
