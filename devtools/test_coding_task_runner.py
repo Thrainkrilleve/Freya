@@ -18,7 +18,7 @@ class CodingTaskRunnerTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
-        (self.repo / "demo.py").write_text("print('old')\n")
+        (self.repo / "demo.py").write_text("print('old')\n", newline="\n")
         self.journals = self.root / "journals"
         self.patches = self.root / "patches"
 

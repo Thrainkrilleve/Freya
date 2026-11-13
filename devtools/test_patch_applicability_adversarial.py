@@ -57,7 +57,7 @@ class Workspace(unittest.TestCase):
         directory = self.root / "fakebin"
         directory.mkdir(exist_ok=True)
         script = directory / "git"
-        script.write_text("#!/bin/sh\n" + textwrap.dedent(body))
+        script.write_text("#!/bin/sh\n" + textwrap.dedent(body), newline="\n")
         script.chmod(0o755)
         return script
 
@@ -149,7 +149,7 @@ class ExecutableResolutionTests(Workspace):
         planted.mkdir()
         for name in patch_applicability.GIT_NAMES:
             fake = planted / name
-            fake.write_text("#!/bin/sh\nexit 0\n")
+            fake.write_text("#!/bin/sh\nexit 0\n", newline="\n")
             fake.chmod(0o755)
         previous = os.getcwd()
         os.chdir(planted)

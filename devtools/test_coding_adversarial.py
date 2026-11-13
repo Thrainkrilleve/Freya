@@ -13,7 +13,7 @@ class CodingAdversarialTests(unittest.TestCase):
     def test_rejects_symlink_source(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / "actual.py").write_text("pass\n")
+            (root / "actual.py").write_text("pass\n", newline="\n")
             link = root / "linked.py"
             try:
                 link.symlink_to(root / "actual.py")
@@ -25,7 +25,7 @@ class CodingAdversarialTests(unittest.TestCase):
     def test_rejects_env_file(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            (root / ".env").write_text("API_KEY=example\n")
+            (root / ".env").write_text("API_KEY=example\n", newline="\n")
             with self.assertRaises(ValueError):
                 selected_source(root, ".env")
 

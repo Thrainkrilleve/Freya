@@ -24,7 +24,7 @@ class CodingBrokerIntegrationTests(unittest.TestCase):
         root = Path(self.temp.name)
         self.repo = root / "repo"
         self.repo.mkdir()
-        (self.repo / "example.py").write_text("answer = 1\n", encoding="utf-8")
+        (self.repo / "example.py").write_text("answer = 1\n", encoding="utf-8", newline="\n")
         self.providers = ProviderRegistry()
         self.capabilities = CapabilityRegistry(self.providers)
         self.policy = Mock()

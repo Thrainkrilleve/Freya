@@ -17,7 +17,7 @@ class CodingRevocationTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.repo = self.root / "repo"
         self.repo.mkdir()
-        (self.repo / "sample.py").write_text("answer = 1\n")
+        (self.repo / "sample.py").write_text("answer = 1\n", newline="\n")
 
     def test_revoked_during_generation_prevents_patch_artifact(self):
         allowed = True

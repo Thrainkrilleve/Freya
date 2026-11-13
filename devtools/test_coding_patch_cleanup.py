@@ -14,7 +14,7 @@ class PatchCleanupTests(unittest.TestCase):
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
-            (repo / "example.py").write_text("answer = 1\n")
+            (repo / "example.py").write_text("answer = 1\n", newline="\n")
             count = 0
 
             def checkpoint():
@@ -38,7 +38,7 @@ class PatchCleanupTests(unittest.TestCase):
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
-            (repo / "example.py").write_text("answer = 1\n")
+            (repo / "example.py").write_text("answer = 1\n", newline="\n")
             journal = TaskJournal.create(root / "journal")
             outputs = root / "patches"
             outputs.mkdir()
@@ -59,7 +59,7 @@ class PatchCleanupTests(unittest.TestCase):
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
-            (repo / "example.py").write_text("answer = 1\n")
+            (repo / "example.py").write_text("answer = 1\n", newline="\n")
             journal = TaskJournal.create(root / "journal")
             outputs = root / "patches"
             outputs.mkdir()
@@ -82,7 +82,7 @@ class PatchCleanupTests(unittest.TestCase):
             root = Path(tmp)
             repo = root / "repo"
             repo.mkdir()
-            (repo / "example.py").write_text("answer = 1\n")
+            (repo / "example.py").write_text("answer = 1\n", newline="\n")
 
             def fail(*args):
                 raise RuntimeError("Synthetic generation failure")
