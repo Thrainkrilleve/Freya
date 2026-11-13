@@ -15,7 +15,7 @@ import json
 import pytest
 
 from freya.control_plane import build_local_control_plane
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.providers.model.ollama import (
     LLM_CHAT,
     LLM_CHAT_STREAM,
@@ -40,6 +40,7 @@ def plane(tmp_path, fake_ollama):
             description="Test tool that echoes its argument.",
             provider="system-tools-local",
             handler=lambda text: {"echo": text},
+            declaration=declare(("none", "test fixture, no resource")),
             metadata={
                 MODEL_TOOL: True,
                 "tool_parameters": {
@@ -155,6 +156,7 @@ def test_a_denied_call_is_recorded_and_never_dispatched(plane):
             description="Test tool with no policy rule.",
             provider="system-tools-local",
             handler=lambda: "ran",
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
 

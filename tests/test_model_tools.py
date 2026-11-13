@@ -4,7 +4,7 @@ import pytest
 
 from freya.control_plane import build_local_control_plane
 from freya.core.assistant import MAX_TOOL_CALLS, MAX_TOOL_ROUNDS, FreyaAssistant
-from freya.core.capabilities import CapabilityDefinition, CapabilityStatus
+from freya.core.capabilities import CapabilityDefinition, declare, CapabilityStatus
 from freya.memory import memory_manager
 from freya.core.providers import ProviderHealth
 from freya.providers.image.comfyui import COMFYUI_PROVIDER
@@ -36,12 +36,20 @@ def assistant(plane, tmp_path, monkeypatch):
 def add_tool(plane, name, handler, **overrides):
     fields = {"metadata": {MODEL_TOOL: True}}
     fields.update(overrides)
+    declaration = fields.pop(
+        "declaration",
+        declare(
+            ("none", "test fixture, no resource"),
+            effect="consequential" if fields.get("destructive") else "read-only",
+        ),
+    )
     plane.capabilities.register(
         CapabilityDefinition(
             name=name,
             description="Test tool.",
             provider="system-tools-local",
             handler=handler,
+            declaration=declaration,
             **fields,
         )
     )

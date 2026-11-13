@@ -23,6 +23,7 @@ from freya.core.capabilities import (
     CapabilityBroker,
     CapabilityDefinition,
     CapabilityRegistry,
+    declare,
 )
 from freya.core.conversation_memory import CONVERSATION_RECALL
 from freya.core.persistence import (
@@ -219,6 +220,19 @@ class ControlPlane:
                 handler=generate,
                 category="image",
                 requires_gpu=True,
+                declaration=declare(
+                    ("gpu", "the image model while a picture is made"),
+                    (
+                        "filesystem",
+                        "Freya's image folder and the local ComfyUI output folder",
+                    ),
+                    (
+                        "process",
+                        "starts the local ComfyUI server when it is not already running",
+                    ),
+                    requires=("gpu",),
+                    effect="consequential",
+                ),
                 optional_dependencies=[COMFYUI_PROVIDER],
                 metadata={
                     MODEL_TOOL: True,
@@ -287,6 +301,10 @@ class ControlPlane:
                 provider=CONVERSATION_PROVIDER,
                 handler=recall,
                 category="memory",
+                declaration=declare((
+                    "memory",
+                    "the word-for-word record of earlier conversations",
+                )),
                 metadata={
                     MODEL_TOOL: True,
                     TOOL_PARAMETERS: {

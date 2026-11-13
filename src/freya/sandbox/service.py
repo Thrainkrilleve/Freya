@@ -1,6 +1,6 @@
 import threading
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 from freya.sandbox.contract import (
     DEFAULT_TIMEOUT_SECONDS,
@@ -89,5 +89,13 @@ def register_code_run(registry, sandbox: Sandbox) -> None:
             provider=SANDBOX_PROVIDER,
             handler=run,
             category="execution",
+            declaration=declare(
+                (
+                    "process",
+                    "one command from a fixed list inside the sandbox; no network, no host files, no credentials",
+                ),
+                requires=("sandbox",),
+                effect="consequential",
+            ),
         )
     )

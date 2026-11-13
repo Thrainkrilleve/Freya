@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Callable, List, Optional
 
 from freya.child_environment import child_environment
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.providers import ProviderDefinition
 
 
@@ -798,6 +798,16 @@ def security_self_assessment_capability(handler) -> CapabilityDefinition:
         handler=handler,
         category="security",
         destructive=False,
+        declaration=declare(
+            (
+                "filesystem",
+                "this program's source, git index and gitignore; not personal data",
+            ),
+            (
+                "memory",
+                "the audit log, policy rules and the capability list",
+            ),
+        ),
         metadata={},
         aliases=["self-check", "security.self-check"],
     )

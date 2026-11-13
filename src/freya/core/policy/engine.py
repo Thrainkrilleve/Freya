@@ -55,6 +55,8 @@ class SqlitePolicyEngine:
         action: str,
         resource: Any = None,
         environment: Any = None,
+        *,
+        consequential: bool = False,
     ) -> PolicyDecision:
         subject = self._normalize(subject)
         action = self._normalize(action)
@@ -70,7 +72,7 @@ class SqlitePolicyEngine:
 
             rules = self._store.execute(
                 """
-                SELECT effect, reason
+                SELECT effect, reason, subject, capability
                 FROM policy_rule
                 WHERE subject IN (?, ?)
                   AND capability IN (?, ?)
@@ -85,10 +87,25 @@ class SqlitePolicyEngine:
         denies = [r for r in rules if r["effect"] == "deny"]
         allows = [r for r in rules if r["effect"] == "allow"]
 
+        # A wildcard grant is not an authorization for a capability
+        # that modifies something. The rule has to name this subject
+        # and this capability. Read-only stays deny-by-default, and a
+        # wildcard may still allow one.
+        if consequential:
+            allows = [
+                r for r in allows
+                if r["subject"] != ANY and r["capability"] != ANY
+            ]
+
         if denies:
             allow, reason = False, denies[0]["reason"]
         elif allows:
             allow, reason = True, allows[0]["reason"]
+        elif consequential:
+            allow, reason = False, (
+                "A consequential action needs an allow rule that "
+                "names this subject and this capability."
+            )
         else:
             allow, reason = False, "No policy rule allows this action."
 

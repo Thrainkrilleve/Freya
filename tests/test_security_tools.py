@@ -9,6 +9,7 @@ from freya.core.capabilities import (
     CapabilityBroker,
     CapabilityDefinition,
     CapabilityRegistry,
+    declare,
 )
 from freya.core.persistence import ControlStore
 from freya.core.policy import SqlitePolicyEngine, seed_alpha_policy
@@ -108,6 +109,10 @@ def _registry_with(name, **extra):
             description="Test capability.",
             provider="test-provider",
             handler=lambda: None,
+            declaration=declare(
+                ("none", "test fixture, no resource"),
+                effect="consequential" if extra.get("destructive") else "read-only",
+            ),
             **extra,
         )
     )
@@ -338,6 +343,10 @@ def _capability(name, *, destructive=False, model_tool=False):
         provider="test-provider",
         handler=lambda: None,
         destructive=destructive,
+        declaration=declare(
+            ("none", "test fixture, no resource"),
+            effect="consequential" if destructive else "read-only",
+        ),
         metadata={"model_tool": True} if model_tool else {},
     )
 

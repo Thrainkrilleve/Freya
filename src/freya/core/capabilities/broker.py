@@ -71,6 +71,20 @@ class BrokerResult:
     audit_recorded: bool = True
 
 
+def _consequential(capability) -> bool:
+    """
+    A capability with no declaration is treated as consequential, so
+    a wildcard grant cannot run it. Registration already refuses that
+    shape; this is the broker failing closed if one is reached anyway.
+    """
+    declaration = getattr(capability, "declaration", None)
+
+    if declaration is None:
+        return True
+
+    return bool(getattr(declaration, "consequential", True))
+
+
 def _arguments_digest(args, kwargs) -> str:
     canonical = json.dumps(
         [list(args), kwargs],
@@ -178,6 +192,7 @@ class CapabilityBroker:
                 decision = self._policy.decide(
                     self._principal.actor,
                     capability_name,
+                    consequential=_consequential(capability),
                 )
             except Exception:
                 decision = PolicyDecision(
