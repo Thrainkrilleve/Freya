@@ -21,6 +21,7 @@ import sys
 import time
 from pathlib import Path
 
+from freya.paths import data_dir
 from freya.federation import profile as node_profile
 from freya.federation.registry import (
     DEFAULT_VALID_DAYS,
@@ -32,7 +33,7 @@ from freya.federation.registry import (
 from freya.federation.network import read_tailnet
 from freya.federation.roles import ROLES, SANDBOX_HOST_CONDITIONS, suggest_roles
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 REGISTRY_FILE = "federation_nodes.json"
 MAX_OFFER_FILE_BYTES = 16_384
 

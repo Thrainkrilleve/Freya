@@ -13,6 +13,7 @@ import unicodedata
 from pathlib import Path
 from typing import Callable, Mapping, Optional
 
+from freya.paths import data_dir
 from freya.decider.contract import (
     CHOICE,
     NO,
@@ -23,7 +24,7 @@ from freya.decider.contract import (
 )
 
 
-DATA_DIR = Path(__file__).resolve().parents[3] / "data"
+DATA_DIR = data_dir()
 WORKERS_DIR = Path(__file__).resolve().parent / "workers"
 ENVS_DIR = Path(os.environ.get("FREYA_DECIDER_ENVS") or DATA_DIR / "decider_envs")
 MODELS_DIR = Path(os.environ.get("FREYA_DECIDER_MODELS") or DATA_DIR / "decider_models")

@@ -12,11 +12,13 @@ REPOSITORY = Path(__file__).resolve().parents[1]
 # Every module that keeps a DATA_DIR of its own.
 MODULES = (
     "freya.core.persistence.control_store",
+    "freya.decider.laya_decider",
     "freya.delegation.dispatch",
     "freya.delegation.material",
     "freya.delegation.record",
     "freya.delegation.screening",
     "freya.delegation.service",
+    "freya.federation.__main__",
     "freya.file_access",
     "freya.image.gallery",
     "freya.launcher",
