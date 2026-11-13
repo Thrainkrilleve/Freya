@@ -494,6 +494,10 @@ class ControlPlane:
 
     def close(self) -> None:
         configure_model_runtime(None)
+        tasks = getattr(self, "tasks", None)
+
+        if tasks is not None:
+            tasks.close()
 
         # Stops the ComfyUI server only if Freya started it.
         self.providers.stop(COMFYUI_PROVIDER)
@@ -660,5 +664,9 @@ def build_local_control_plane(
 
     if world_view is not None:
         plane.register_world_view(world_view)
+
+    # Off unless FREYA_TASKS=1. Nothing here is granted by a seed.
+    from freya.tasks.lifecycle import maybe_register_tasks
+    maybe_register_tasks(plane)
 
     return plane

@@ -41,6 +41,7 @@ DATA_KINDS = (
     DataKind("freya_memory.db", FAST, "Saved memories and every conversation", True),
     DataKind("freya_control.db", FAST, "Policy rules and the audit log"),
     DataKind("freya_usage.db", FAST, "What each model route has used"),
+    DataKind("freya_tasks.db", FAST, "Local task states and their transitions"),
     DataKind("freya_settings.json", FAST, "Names Freya answers to and her volume", True),
     DataKind("storage_locations.json", FAST, "Where bulk data is kept"),
     DataKind("backup_status.json", FAST, "How the last backup attempt went"),
