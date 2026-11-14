@@ -60,17 +60,68 @@ python -m freya.storage.backup            # make one, on the other drive
 python -m freya.storage.backup --check D:\FreyaBackups\2026-10-09_170618
 ```
 
-- It copies the memory, control and usage databases with SQLite's own backup, which
-  gives a consistent copy even while Freya is running, and checks each copy.
+- It copies the memory, control, usage, tasks and media databases with SQLite's own
+  backup, which gives a consistent copy even while Freya is running, and checks each
+  copy. It also copies the deletion ledger, which lives outside `data/`.
 - It copies the small settings files, including the cloud settings, the screening
   lists and the record of sent briefs.
 - It refuses a target on the same drive as the data.
-- Each run makes a new folder with a manifest of sizes and checksums. It never moves
-  or deletes anything, so old backups are not cleared away; that is not built.
-- It does not copy images, media, voice clips or models.
+- Each run makes a new folder. The manifest lists sizes and checksums of the
+  plaintext and is itself encrypted. It never moves or deletes anything, so old
+  backups are not cleared away; that is not built.
+- It does not copy images, media files, voice clips or models.
+
+## Encryption and restore
+
+New backups are encrypted, one data key for the folder, AES-256-GCM on each file.
+The header (magic, format version, key id, nonce) is bound as associated data, so a
+changed header fails the same check as a changed file. The data key is not written
+down. Wraps of it travel in `keys.bin`.
+
+The machine's keystore holds the key-encryption key when it has one: DPAPI on
+Windows, the Secret Service on Linux, and the Keychain on macOS. The Keychain item
+is not synced off that Mac. Linux does not fall back to the kernel keyring. That
+store is session memory and is gone after a reboot, so it is used only when
+`FREYA_BACKUP_KERNEL_KEYRING` is exactly `1`. Without Secret Service, and without
+that setting, the command asks for a passphrase. Nothing here falls back to a
+plaintext backup or to a key file beside the data.
+
+The passphrase is stretched with argon2id at 256 MiB, 3 iterations and parallelism
+4, the same on every OS. That is stronger than RFC 9106's second recommended
+profile (64 MiB, 3 iterations, parallelism 4). The numbers are stored in the wrap,
+and an unlock uses the numbers it finds there, so they can be raised later. A wrap
+below that floor is refused. On the Linux host that timed the scratch drill, one
+stretch took about a quarter of a second; a slower machine should still finish in
+a few seconds. The passphrase is typed at the prompt. It is not an argument and it
+is not read from the environment.
+
+The first backup also makes a recovery key and prints it once on a terminal, to be
+written down and kept off the machine. That key unwraps the data key on any OS.
+`--show-recovery-key` prints it if it has not been shown yet, and then it is not
+shown again. It is not stored in the clear.
+
+```text
+python -m freya.storage.backup
+python -m freya.storage.backup --check <folder>
+python -m freya.storage.backup --show-recovery-key
+python -m freya.storage.restore --from <folder>
+```
+
+A backup made before encryption is not the default. Restoring one is an explicit
+migration, and it is the only use of the flag:
+
+```text
+python -m freya.storage.restore --from <folder> --allow-unencrypted
+```
+
+`python devtools/restore_drill.py` times a scratch backup that is encrypted, then
+deleted, restored and checked. It does not read the owner's data directory and it
+does not use the machine's keystore. Live database encryption and key rotation are
+not part of this step.
 
 The first backup was made on 2026-10-09 to `D:\FreyaBackups`, at the owner's request.
-It is personal data, on an unencrypted drive, like the data it copies.
+It is personal data. That copy predates encryption. A backup made now is encrypted
+even when the drive it sits on is not.
 
 Freya now makes a backup as she closes (owner decision, 2026-10-09), unless one was
 made in the last hour. It runs beside the rest of closing and is given 20 seconds, so
@@ -78,9 +129,9 @@ a slow or missing drive cannot keep her from closing; if it cannot be made, she 
 without one and says nothing. `FREYA_BACKUP=0` turns it off and `FREYA_BACKUP_DIR`
 names another place.
 
-Not built: removing old backups, restoring from one, checking that a restored copy
-works, and telling the owner when a backup could not be made. A Freya left running
-for days makes no backup in that time.
+Not built: removing old backups. A Freya left running for days makes no backup in
+that time. Restoring, checking a backup, and saying so when a close-time backup
+failed, are built. The owner's own databases have not been drilled.
 
 ## Keeping bulk data off the SSD
 

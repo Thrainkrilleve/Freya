@@ -11,10 +11,19 @@ from freya.storage.backup import (
     check,
     default_target,
 )
+from freya.storage.custody import BACKEND_DPAPI, MemoryKeyStore
 from freya.storage.placement import HDD, SSD
 
 
 WHEN = datetime(2026, 10, 9, 17, 30, 0)
+
+
+@pytest.fixture(autouse=True)
+def keystore(monkeypatch):
+    """A stand-in keystore, so these tests do not touch a real one."""
+    store = MemoryKeyStore(BACKEND_DPAPI)
+    monkeypatch.setattr(backup, "default_custody", lambda environ=None: store)
+    return store
 
 
 @pytest.fixture
@@ -44,23 +53,29 @@ def other_drive(monkeypatch, data, target):
     return target
 
 
-def test_databases_and_settings_are_copied_and_can_be_opened(tmp_path, data, monkeypatch):
+def test_databases_and_settings_are_copied_and_can_be_opened(tmp_path, data, monkeypatch, keystore):
     target = other_drive(monkeypatch, data, tmp_path / "elsewhere")
 
     folder = back_up(data, target, WHEN)
 
     assert folder == target / "2026-10-09_173000"
     assert sorted(p.name for p in folder.iterdir()) == [
-        "freya_memory.db", "freya_settings.json", "manifest.json",
+        "freya_memory.db", "freya_settings.json", "keys.bin", "manifest.json",
     ]
-    copy = sqlite3.connect(folder / "freya_memory.db")
+    sealed = (folder / "freya_memory.db").read_bytes()
+    assert sealed.startswith(b"FREYAENC")
+    assert b"SQLite format 3" not in sealed
+    plain = backup.read_member(folder, "freya_memory.db", custody=keystore)
+    opened = tmp_path / "opened.db"
+    opened.write_bytes(plain)
+    copy = sqlite3.connect(opened)
     try:
         assert copy.execute("SELECT COUNT(*) FROM notes").fetchone()[0] == 50
         # One plain file, with no sidecar files left to lose.
         assert copy.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
     finally:
         copy.close()
-    assert check(folder) == []
+    assert check(folder, custody=keystore) == []
 
 
 def test_a_backup_on_the_same_drive_is_refused(tmp_path, data, monkeypatch):
@@ -97,18 +112,22 @@ def test_each_run_makes_a_new_folder_and_keeps_the_old(tmp_path, data, monkeypat
         back_up(data, target, WHEN)
 
 
-def test_a_changed_or_missing_copy_is_reported(tmp_path, data, monkeypatch):
+def test_a_changed_or_missing_copy_is_reported(tmp_path, data, monkeypatch, keystore):
     target = other_drive(monkeypatch, data, tmp_path / "elsewhere")
     folder = back_up(data, target, WHEN)
 
-    (folder / "freya_settings.json").write_text("{}", "utf-8")
-    assert check(folder) == ["freya_settings.json has changed since it was copied."]
+    backup.replace_member(
+        folder, "freya_settings.json", b"{}", custody=keystore, update_manifest=False,
+    )
+    assert check(folder, custody=keystore) == [
+        "freya_settings.json has changed since it was copied.",
+    ]
 
     (folder / "freya_memory.db").unlink()
-    assert "freya_memory.db is missing." in check(folder)
+    assert "freya_memory.db is missing." in check(folder, custody=keystore)
 
     (folder / "manifest.json").unlink()
-    assert check(folder) == ["The manifest is missing or unreadable."]
+    assert check(folder, custody=keystore) == ["The manifest is missing or unreadable."]
 
 
 def test_nothing_to_back_up_is_an_error_and_leaves_no_folder(tmp_path, monkeypatch):
@@ -134,13 +153,15 @@ def test_the_target_is_another_drive_preferring_a_hard_disk(tmp_path, monkeypatc
         back_up(tmp_path, None)
 
 
-def test_the_manifest_holds_sizes_and_checksums_not_contents(tmp_path, data, monkeypatch):
+def test_the_manifest_holds_sizes_and_checksums_not_contents(tmp_path, data, monkeypatch, keystore):
     target = other_drive(monkeypatch, data, tmp_path / "elsewhere")
 
     folder = back_up(data, target, WHEN)
-    manifest = (folder / "manifest.json").read_text("utf-8")
+    raw = (folder / "manifest.json").read_bytes()
 
-    assert "made-up note" not in manifest
-    entries = json.loads(manifest)["copied"]
+    assert b"made-up note" not in raw
+    with pytest.raises((UnicodeDecodeError, json.JSONDecodeError, ValueError)):
+        json.loads(raw.decode("utf-8"))
+    entries = backup.read_manifest(folder, custody=keystore)["copied"]
     assert {entry["kind"] for entry in entries} == {"database", "file"}
     assert all(len(entry["sha256"]) == 64 and entry["bytes"] > 0 for entry in entries)

@@ -1,8 +1,14 @@
 """
 Put a dated backup back.
 
-Databases and settings are copied out of the backup folder. The
-deletion ledger is not rolled backwards: a backup taken before a
+Databases and settings are copied out of the backup folder. An
+encrypted backup is decrypted only after every member passes its
+authentication check, into a temporary directory that is removed
+before this returns. A backup made before encryption is restored
+only when ``allow_unencrypted`` is set; that is the migration path,
+and new backups are never written that way.
+
+The deletion ledger is not rolled backwards: a backup taken before a
 forgetting holds the forgotten row and not the tombstone. When the
 live ledger already records that tombstone it is kept, and the
 tombstones are applied to the restored memory database before this
@@ -10,10 +16,12 @@ returns. A missing live ledger is taken from the backup. If that is
 the only copy, a forgetting made after the backup comes back.
 """
 
+import argparse
 import json
 import os
 import shutil
 import sqlite3
+import sys
 from pathlib import Path
 
 from freya.memory.deletion_ledger import (
@@ -22,7 +30,18 @@ from freya.memory.deletion_ledger import (
     is_protected,
     ledger_path_for,
 )
-from freya.storage.backup import LEDGER_COPY_NAME, BackupRefused, check, copy_path
+from freya.storage.placement import DATA_DIR
+from freya.storage.backup import (
+    LEDGER_COPY_NAME,
+    UNENCRYPTED_MIGRATION,
+    BackupRefused,
+    _check_plain,
+    _is_encrypted,
+    _is_legacy,
+    _unlock_for_folder,
+    copy_path,
+    materialise,
+)
 
 
 def _read_ledger(path: Path):
@@ -167,16 +186,18 @@ def _replay(database: Path, ledger: Path) -> None:
             pass
 
 
-def restore(folder, data_dir, environ=None) -> Path:
+def _restore_plain(folder, data_dir, environ=None) -> Path:
     """
-    Copy ``folder`` back into ``data_dir`` and return the ledger path.
+    Copy a plaintext backup tree into ``data_dir`` and return the ledger path.
 
-    The backup is checked first. A ledger that does not continue the
-    live one refuses the restore with nothing written.
+    The tree is checked first. A ledger that does not continue the
+    live one refuses the restore with nothing written. Callers decrypt
+    into a temporary tree before this, or pass a legacy backup only
+    through the migration flag.
     """
     folder = Path(folder)
     data_dir = Path(data_dir)
-    problems = check(folder)
+    problems = _check_plain(folder)
 
     if problems:
         raise BackupRefused("The backup is not sound: " + " ".join(problems))
@@ -211,3 +232,81 @@ def restore(folder, data_dir, environ=None) -> Path:
         _replay(data_dir / "freya_memory.db", ledger)
 
     return ledger
+
+
+def restore(
+    folder,
+    data_dir,
+    environ=None,
+    *,
+    allow_unencrypted: bool = False,
+    custody=None,
+    passphrase=None,
+    recovery_key=None,
+) -> Path:
+    """
+    Copy ``folder`` back into ``data_dir`` and return the ledger path.
+
+    An encrypted backup is authenticated before any plaintext is written
+    into ``data_dir``. A wrong key or a changed byte refuses the restore
+    and leaves ``data_dir`` as it was. A backup made before encryption
+    is refused unless ``allow_unencrypted`` is set.
+    """
+    folder = Path(folder)
+    data_dir = Path(data_dir)
+
+    if _is_encrypted(folder):
+        staging = materialise(
+            folder,
+            custody=custody,
+            passphrase=passphrase,
+            recovery_key=recovery_key,
+        )
+
+        try:
+            return _restore_plain(staging, data_dir, environ)
+        finally:
+            shutil.rmtree(staging, ignore_errors=True)
+
+    if _is_legacy(folder):
+        if not allow_unencrypted:
+            raise BackupRefused(UNENCRYPTED_MIGRATION)
+
+        return _restore_plain(folder, data_dir, environ)
+
+    raise BackupRefused("The manifest is missing or unreadable.")
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(
+        description=(
+            "Put a dated backup back. New backups are encrypted. "
+            "--allow-unencrypted is only for a backup made before encryption."
+        ),
+    )
+    parser.add_argument("--from", dest="folder", type=Path, required=True)
+    parser.add_argument("--data", type=Path, default=DATA_DIR)
+    parser.add_argument(
+        "--allow-unencrypted",
+        action="store_true",
+        help="Restore a backup made before encryption. Only for that migration.",
+    )
+    args = parser.parse_args(argv)
+
+    try:
+        if _is_encrypted(args.folder):
+            unlock = _unlock_for_folder(args.folder)
+            restore(args.folder, args.data, **unlock)
+        else:
+            restore(args.folder, args.data, allow_unencrypted=args.allow_unencrypted)
+    except BackupRefused as refused:
+        print(f"Nothing was restored: {refused}", file=sys.stderr)
+        return 1
+
+    print(f"Restored {args.folder} into {args.data}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

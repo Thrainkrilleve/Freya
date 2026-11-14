@@ -4,9 +4,10 @@ Scratch restore drill.
     python devtools/restore_drill.py
     python devtools/restore_drill.py --root <empty-folder>
 
-Creates made-up rows in a temporary data directory, backs them up,
-deletes them, restores them, and prints how long it took. It does
-not read the owner's data directory.
+Creates made-up rows in a temporary data directory, backs them up
+encrypted, deletes them, restores them, and prints how long it took.
+It does not read the owner's data directory and it does not use the
+machine's keystore.
 """
 
 import sys
