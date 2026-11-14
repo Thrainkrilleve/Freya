@@ -2,10 +2,13 @@
 Time a restore of scratch data.
 
 The drill creates a temporary data directory, writes one made-up row
-into each store (control, usage, memory, media, tasks), backs it up,
-deletes it, restores it, and checks integrity. It never opens the
-owner's data directory. The times are for that scratch data only.
-They are not a measurement of a real backup.
+into each store (control, usage, memory, media, tasks), backs it up
+encrypted, deletes it, restores it, and checks integrity. The backup
+is opened with the recovery key made for that run. The key and the
+passphrase stay in memory and are not printed. It never opens the
+owner's data directory, and it does not use the machine's keystore.
+The times are for that scratch data only. They are not a measurement
+of a real backup.
 
     python devtools/restore_drill.py
     python -m freya.storage.restore_drill
@@ -13,6 +16,7 @@ They are not a measurement of a real backup.
 
 import argparse
 import json
+import secrets
 import shutil
 import sqlite3
 import sys
@@ -32,7 +36,15 @@ from freya.memory.conversations import ConversationStore
 from freya.memory.deletion_ledger import LEDGER_DIRECTORY, ledger_path_for
 from freya.memory.protection import ensure_memory_protection
 from freya.paths import data_dir
-from freya.storage.backup import BackupRefused, back_up, check
+from freya.storage.backup import (
+    FILE_MAGIC,
+    BackupRefused,
+    back_up,
+    bundle_path_for,
+    check,
+    read_manifest,
+)
+from freya.storage.custody import NoKeyStore, parse_recovery_key
 from freya.storage.restore import restore
 from freya.tasks.lifecycle import TASK_MIGRATIONS
 
@@ -70,6 +82,7 @@ class DrillResult:
     rows: Tuple[Tuple[str, int], ...]
     copied: Tuple[str, ...]
     problems: Tuple[str, ...]
+    encrypted: bool = True
 
     @property
     def inside_rto(self) -> bool:
@@ -90,6 +103,7 @@ class DrillResult:
             f"recovery point gap: {self.recovery_point_seconds:.3f} s",
             "inside 4 h RTO: " + ("yes" if self.inside_rto else "no"),
             "inside 24 h RPO: " + ("yes" if self.inside_rpo else "no"),
+            "encrypted: " + ("yes" if self.encrypted else "no"),
             "rows: " + ", ".join(f"{name}={count}" for name, count in self.rows),
             "copied: " + ", ".join(self.copied),
         ]
@@ -287,6 +301,59 @@ def _remove_ledger(ledger: Path) -> None:
     ledger.unlink(missing_ok=True)
 
 
+def _folder_bytes(folder: Path) -> bytes:
+    parts = []
+
+    for path in folder.rglob("*"):
+        if path.is_file():
+            parts.append(path.read_bytes())
+
+    return b"".join(parts)
+
+
+def _encryption_problems(folder, data, environ, passphrase, recovery_text, problems) -> None:
+    """
+    The scratch backup must not be readable as a database or as JSON,
+    and it must not contain the passphrase or the recovery key.
+    """
+    stored = _folder_bytes(folder)
+    bundle = bundle_path_for(data, environ)
+    bundle_bytes = bundle.read_bytes() if bundle.is_file() else b""
+
+    if passphrase.encode("utf-8") in stored or passphrase.encode("utf-8") in bundle_bytes:
+        problems.append("The passphrase was stored with the backup.")
+
+    if recovery_text:
+        raw = parse_recovery_key(recovery_text)
+        text = recovery_text.encode("ascii")
+
+        if text in stored or text in bundle_bytes or raw in stored or raw in bundle_bytes:
+            problems.append("The recovery key was stored in the clear.")
+
+    if SCRATCH_FACT.encode("utf-8") in stored:
+        problems.append("Scratch memory text was readable in the backup folder.")
+
+    for path in folder.rglob("*"):
+        if not path.is_file():
+            continue
+
+        blob = path.read_bytes()
+
+        if blob.startswith(b"SQLite format 3"):
+            problems.append("A backup file is still a database.")
+
+        if path.name == "manifest.json":
+            if not blob.startswith(FILE_MAGIC):
+                problems.append("The manifest is not encrypted.")
+
+            try:
+                json.loads(blob.decode("utf-8"))
+            except (UnicodeError, ValueError):
+                pass
+            else:
+                problems.append("The manifest is readable without the key.")
+
+
 def run_drill(root, now: Optional[datetime] = None, environ=None) -> DrillResult:
     """
     Run one drill under ``root`` and return the timings.
@@ -325,21 +392,28 @@ def run_drill(root, now: Optional[datetime] = None, environ=None) -> DrillResult
         before = _counts(data, ledger)
         backup_started = time.perf_counter()
         # Same drive on purpose: scratch has nowhere else to go.
+        # A throwaway passphrase and recovery key, held only in this
+        # function. NoKeyStore so the drill never touches a real keystore.
+        passphrase = secrets.token_urlsafe(24)
+        recovery_lines: List[str] = []
         folder = back_up(
             data,
             root / "backups",
             moment,
             allow_same_drive=True,
             environ=environ,
+            custody=NoKeyStore(),
+            passphrase=passphrase,
+            recovery_lines=recovery_lines,
         )
         backup_finished = time.perf_counter()
+        recovery_text = recovery_lines[0] if recovery_lines else ""
         copied = tuple(
             entry["name"]
-            for entry in json.loads(
-                (folder / "manifest.json").read_text(encoding="utf-8")
-            )["copied"]
+            for entry in read_manifest(folder, recovery_key=recovery_text)["copied"]
         )
-        manifest_problems = check(folder)
+        _encryption_problems(folder, data, environ, passphrase, recovery_text, problems)
+        manifest_problems = check(folder, recovery_key=recovery_text)
 
         if manifest_problems:
             problems.extend(manifest_problems)
@@ -347,7 +421,7 @@ def run_drill(root, now: Optional[datetime] = None, environ=None) -> DrillResult
         shutil.rmtree(data)
         _remove_ledger(ledger)
         restore_started = time.perf_counter()
-        restore(folder, data, environ)
+        restore(folder, data, environ, custody=NoKeyStore(), recovery_key=recovery_text)
         restore_finished = time.perf_counter()
         verify_started = time.perf_counter()
 
@@ -412,6 +486,7 @@ def run_drill(root, now: Optional[datetime] = None, environ=None) -> DrillResult
         rows=rows,
         copied=copied,
         problems=tuple(unique),
+        encrypted=True,
     )
 
     return result

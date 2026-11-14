@@ -26,7 +26,7 @@ at any defined label.
 | NEW-CV to NEW-DA | `design/model-tiers.md` | 2026-11-05 | Proposal, nothing built; extends `skill-learning.md` |
 | NEW-DB to NEW-DM | `design/worker-nodes.md` | 2026-11-10 | Proposal, not adopted. Finding a machine and recording the owner's decision are built in `freya.federation`; nothing is sent and Core does not import it |
 | NEW-EA | `design/security-self-assessment.md` | 2026-11-06 | Proposal, not adopted. The read-only `security.self_assessment` checks are built |
-| NEW-EB to NEW-EG | `adr/015-persistence-recovery.md` | 2026-11-13 | Proposed decision inside ADR-015 (encryption at rest and key custody). Not approved. Nothing built |
+| NEW-EB to NEW-EG | `adr/015-persistence-recovery.md` | 2026-11-13 | Proposed decision inside ADR-015 (encryption at rest and key custody). Not approved. Backup encryption and KeyCustody are built; live database encryption and key rotation are not |
 
 **Next free range starts at NEW-EH.**
 

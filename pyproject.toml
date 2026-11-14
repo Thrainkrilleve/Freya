@@ -6,7 +6,9 @@ readme = "README.md"
 # kokoro (via misaki) does not support Python 3.13 yet.
 requires-python = ">=3.12,<3.13"
 dependencies = [
+    "argon2-cffi>=23.1.0",
     "av>=18.1",
+    "cryptography>=44",
     "faster-whisper>=1.2",
     "flet>=1.0.3",
     "kokoro>=0.9.4",
@@ -14,6 +16,7 @@ dependencies = [
     "ollama>=0.6",
     "psutil>=7",
     "pywebview>=6.2; sys_platform == 'win32'",
+    "secretstorage>=3.3.3; sys_platform == 'linux'",
     "sounddevice>=0.5",
     "soundfile>=0.13",
     "websockets>=15",
