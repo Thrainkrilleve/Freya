@@ -29,4 +29,8 @@ fourth kind.
 
 - A knowledge store, or the decision that the file reader over an opened folder is
   the alpha's knowledge path.
-- MEM-008 (restore-safe deletion): built but not switched on; see ADR-015.
+- MEM-008 (restore-safe deletion): `main.py` opens the memory store in
+  protected mode, and a dated backup carries the ledger. A restore through
+  `storage/restore.py` does not roll that ledger backwards. This is not full
+  MEM-008. Other copies, exports, and a hand-copied pair of files can still
+  bring a fact back. See ADR-015.

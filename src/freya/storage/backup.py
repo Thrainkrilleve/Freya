@@ -16,6 +16,10 @@ from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 
+from freya.memory.deletion_ledger import (
+    ProtectionSetupError,
+    ledger_path_for,
+)
 from freya.storage.placement import (
     DATA_DIR,
     HDD,
@@ -34,7 +38,14 @@ DATABASES = (
     "freya_control.db",
     "freya_usage.db",
     "freya_tasks.db",
+    # The media library keeps its database under data/media/.
+    "media/freya_media.db",
 )
+
+# The deletion ledger lives outside data/ so a copy of that folder does
+# not take it. A backup copies it under this name. Restore will not
+# replace a newer ledger with this older one.
+LEDGER_COPY_NAME = "deletion_ledger.db"
 
 # Small files copied as they are.
 FILES = (
@@ -107,11 +118,23 @@ def _copy_database(source: Path, target: Path) -> None:
         raise BackupRefused(f"The copy of {source.name} did not pass its check.")
 
 
+def _known(name: str) -> bool:
+    return name in DATABASES or name in FILES or name == LEDGER_COPY_NAME
+
+
+def _kind(name: str) -> str:
+    if name in DATABASES or name == LEDGER_COPY_NAME:
+        return "database"
+
+    return "file"
+
+
 def back_up(
     data_dir=DATA_DIR,
     target_root=None,
     now: Optional[datetime] = None,
     allow_same_drive: bool = False,
+    environ=None,
 ) -> Path:
     """
     Make one dated backup and return its folder.
@@ -133,6 +156,13 @@ def back_up(
             "lost with it."
         )
 
+    # A ledger path inside the data folder is a mistake. Refuse before
+    # creating the backup folder, and before copying anything else.
+    try:
+        ledger = ledger_path_for(data_dir, environ)
+    except ProtectionSetupError as exc:
+        raise BackupRefused(str(exc)) from exc
+
     stamp = (now or datetime.now()).strftime(STAMP_FORMAT)
     folder = target_root / stamp
 
@@ -147,8 +177,14 @@ def back_up(
         for name in DATABASES:
             source = data_dir / name
             if source.is_file():
-                _copy_database(source, folder / name)
+                target = folder / name
+                target.parent.mkdir(parents=True, exist_ok=True)
+                _copy_database(source, target)
                 copied.append({"name": name, "kind": "database"})
+
+        if ledger.is_file():
+            _copy_database(ledger, folder / LEDGER_COPY_NAME)
+            copied.append({"name": LEDGER_COPY_NAME, "kind": "database"})
 
         for name in FILES:
             source = data_dir / name
@@ -194,10 +230,10 @@ def _completed(folder: Path) -> bool:
             if not isinstance(entry, dict):
                 return False
             name = entry.get("name")
-            if not isinstance(name, str) or name not in DATABASES + FILES or name in seen:
+            if not isinstance(name, str) or not _known(name) or name in seen:
                 return False
             seen.add(name)
-            expected_kind = "database" if name in DATABASES else "file"
+            expected_kind = _kind(name)
             size, digest = entry.get("bytes"), entry.get("sha256")
             if entry.get("kind") != expected_kind or type(size) is not int or size < 0:
                 return False
@@ -287,7 +323,7 @@ def back_up_on_close(data_dir=DATA_DIR, now: Optional[datetime] = None, environ=
         ):
             return None
 
-        folder = back_up(data_dir, target, moment)
+        folder = back_up(data_dir, target, moment, environ=environ)
         _note(data_dir, moment, True, target=target)
         return folder
     except Exception as failure:
@@ -334,6 +370,28 @@ def startup_warning(data_dir=DATA_DIR, now: Optional[datetime] = None, environ=N
     return []
 
 
+def copy_path(folder, name) -> Optional[Path]:
+    """
+    The file a manifest entry names, when it is one this backup may
+    hold and the path stays inside the backup folder.
+    """
+    if not isinstance(name, str) or not _known(name):
+        return None
+
+    relative = Path(name)
+
+    if relative.is_absolute() or ".." in relative.parts:
+        return None
+
+    path = (Path(folder) / relative).resolve()
+    root = Path(folder).resolve()
+
+    if path != root and root not in path.parents:
+        return None
+
+    return path
+
+
 def check(folder) -> List[str]:
     """
     Problems with a backup folder: a missing file, a changed file, or
@@ -349,7 +407,15 @@ def check(folder) -> List[str]:
         return ["The manifest is missing or unreadable."]
 
     for entry in entries:
-        path = folder / entry["name"]
+        if not isinstance(entry, dict):
+            problems.append("The backup names a file it should not.")
+            continue
+
+        path = copy_path(folder, entry.get("name"))
+
+        if path is None:
+            problems.append("The backup names a file it should not.")
+            continue
 
         if not path.is_file():
             problems.append(f"{entry['name']} is missing.")

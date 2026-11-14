@@ -20,18 +20,34 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 - Bulk stores can be moved to another drive by copy, verify, switch
   (`storage/move.py`), and `storage/placement.py` reports where each store should
   live. All under one `data_dir()` once C-4 (#38) merges.
-- Explicit forgetting is one transaction. A restore-safe deletion ledger (tombstones
-  replayed on open, `memory/deletion_ledger.py`) is built and tested but not switched
-  on: `main.py` does not open the memory store in protected mode.
+- Explicit forgetting is one transaction. `main.py` opens the memory store in
+  protected mode (`memory/protection.py`). The deletion ledger lives outside
+  `data/` (`deletion_ledger.ledger_path_for`). A dated backup copies it
+  (`storage/backup.py`). `storage/restore.py` puts that backup back and does not
+  replace a newer ledger with an older one, then applies the ledger, so a fact
+  forgotten after the backup stays forgotten. If the newer ledger is gone, or
+  both files are copied by hand, a forgetting made after the backup can come
+  back. This is not full MEM-008.
 - No encryption at rest.
 
 ## Validation owed
 
-- The 24 h RPO / 4 h RTO targets have never been measured. A restore drill: delete a
-  scratch `data/`, restore from the last backup, time it.
-- Restore quarantine: with the ledger off, a backup taken before a forgetting
-  restores the forgotten fact. Switching protected mode on is the first step toward
-  MEM-008; the owner's backup then needs the ledger too.
+- The restore drill is measured on CI scratch data (2026-11-13, Linux,
+  `python devtools/restore_drill.py`, synthetic rows in a temporary directory).
+  Three runs seeded control, usage, memory, media and tasks, backed them up,
+  deleted them, restored them and checked integrity in 0.064 s, 0.066 s and
+  0.046 s. One of those spent 0.010 s backing up, 0.003 s restoring and
+  0.005 s checking. That is inside the 4 h RTO. The scratch backup was made
+  in the same run; the gap from that backup to the end of the check was about
+  0.01 s, inside the 24 h RPO. This is not a measurement of the owner's
+  databases, and it is not an acceptance result. Later runs of
+  `tests/test_restore_drill.py` check the same drill stays inside those
+  targets. They do not rewrite this figure.
+- Protected mode is on at startup. A fact forgotten after a backup stays
+  forgotten when that backup is restored, covered by
+  `test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore` with
+  made-up text in a temporary directory. The owner's own backup has not been
+  drilled. Full MEM-008 is still open.
 - Backup encryption and key recovery. The proposed decision below is not
   approved, and nothing in it is built.
 - SQLite durability settings (each audited call costs 30 to 60 ms in synchronous

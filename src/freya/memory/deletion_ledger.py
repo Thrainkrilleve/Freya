@@ -11,11 +11,16 @@ of it. Each time the memory database is opened in protected mode the
 tombstones are applied to it again before anything is read from it, so a
 restored copy loses the same rows.
 
-This only helps while the ledger is kept somewhere a restore of the
-memory database does not also put back. Nothing here can tell what the
-owner's backups cover: rolling both files back together cannot be
-detected. It is not physical erasure, and it reaches only rows in the
-memory database this code opens, not other copies of it.
+The ledger is kept outside the memory database's folder, so a copy of
+that folder does not take it. The dated backup copies it on purpose
+(`storage/backup.py`). Restoring that backup (`storage/restore.py`)
+does not replace a ledger with an older copy: a fact forgotten after
+the backup stays forgotten, as long as the newer ledger is still on
+the machine. If that newer ledger is gone too, the copy in the backup
+is all that remains, and a forgetting made after the backup comes
+back. Copying both files by hand does the same. This is not physical
+erasure, and it reaches only rows in the memory database this code
+opens, not other copies of it.
 
 Protected mode is chosen by whoever opens the store, by naming the
 ledger. It is never read off the database, because a restored copy from
@@ -48,6 +53,11 @@ REQUIRED_COLUMNS = {
 SEARCH_TABLE = "conversation_search"
 
 # An identifier is 32 lower-case hexadecimal digits.
+# Overrides the ledger's place. A path inside the memory database's
+# folder is refused: a restore of that folder would put the ledger back.
+LEDGER_VARIABLE = "FREYA_DELETION_LEDGER"
+LEDGER_DIRECTORY = "freya_deletion_ledger"
+LEDGER_FILE = "deletions.db"
 MALFORMED = (
     "({0} IS NULL OR typeof({0}) != 'text' OR length({0}) != 32 "
     "OR {0} GLOB '*[^0-9a-f]*')"
@@ -139,6 +149,31 @@ def _beside(path: Path, database: Path) -> bool:
     which is what a backup of that folder would take with it.
     """
     return path.is_relative_to(database.parent)
+
+
+def ledger_path_for(data_dir, environ=None) -> Path:
+    """
+    Where the deletion ledger for the memory database in `data_dir`
+    is kept. Never inside that folder. `FREYA_DELETION_LEDGER` names
+    another file, and is refused when that file is inside the folder.
+    """
+    environ = os.environ if environ is None else environ
+    data = Path(data_dir).resolve()
+    named = str(environ.get(LEDGER_VARIABLE, "") or "").strip()
+
+    if named:
+        path = Path(named).expanduser().resolve()
+    else:
+        path = (data.parent / LEDGER_DIRECTORY / LEDGER_FILE).resolve()
+
+    database = data / "freya_memory.db"
+
+    if _same(path, database) or _beside(path, database):
+        raise ProtectionSetupError(
+            "The deletion ledger must be kept outside the memory database's folder."
+        )
+
+    return path
 
 
 def _database_path(connection):

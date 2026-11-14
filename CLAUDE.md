@@ -78,8 +78,11 @@ Rules for the spec:
   type, not letter). It reads sizes only and moves nothing; see
   `docs/design/storage-placement.md`. A store added under `data/` must be added to
   `DATA_KINDS`; a test checks. `src/freya/storage/backup.py` copies the databases
-  (with SQLite's backup) and settings to a dated folder on another drive and refuses
-  the same drive; it never moves or deletes. Freya runs it as she closes, beside the rest of
+  (control, usage, memory, tasks, and `media/freya_media.db`, with SQLite's backup),
+  the deletion ledger kept outside `data/`, and settings to a dated folder on another
+  drive and refuses the same drive; it never moves or deletes. `src/freya/storage/restore.py`
+  puts a dated backup back and does not replace a newer deletion ledger with an older
+  copy. `devtools/restore_drill.py` times that round trip on scratch data. Freya runs it as she closes, beside the rest of
   closing and for at most 20 seconds, unless one was made in the last hour
   (`FREYA_BACKUP=0` turns it off). `src/freya/storage/locations.py` says where a
   store lives: the six in `BULK_STORES` follow the owner's setting in
@@ -437,8 +440,11 @@ entries atomically and clears the affected summary. The FTS5 index's own
 and existing indexes are rebuilt once so words left by earlier deletions are cleared.
 Current live context is rebuilt;
 earlier summaries wait for authorized recall. These operations do not erase separate
-conversation records that repeat a saved fact, backups, exports or every physical
-disk copy, and do not implement restore-safe tombstones or full MEM-008 compliance.
+conversation records that repeat a saved fact, exports, or every physical disk copy.
+`main.py` opens the memory store in protected mode, so a fact forgotten after a
+backup stays forgotten when `storage/restore.py` puts that backup back: the ledger
+is replayed and is not rolled backwards. If the newer ledger is gone, the copy in
+the backup is all that remains. That is not full MEM-008 compliance.
 Memory tab answers go only to the requesting window. The first creation of conversation
 tables copies the database to `data/backups/`. Never print, commit or transmit its
 contents. Never access personal data as part of development tests.

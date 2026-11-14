@@ -42,6 +42,7 @@ jobs:
           tests/test_policy_engine.py
           tests/test_capability_registry.py
           tests/test_provider_registry.py
+          tests/test_restore_drill.py
 
   core-static-analysis:
     name: Core static analysis
