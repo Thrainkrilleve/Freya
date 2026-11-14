@@ -35,7 +35,7 @@ FACT = "The drill code is 1357."
 def keystore(monkeypatch):
     """A stand-in keystore. Direct backups in this file go through it."""
     store = MemoryKeyStore(BACKEND_KEYCHAIN)
-    monkeypatch.setattr(backup, "default_custody", lambda: store)
+    monkeypatch.setattr(backup, "default_custody", lambda environ=None: store)
     return store
 
 

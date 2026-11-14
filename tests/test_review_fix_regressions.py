@@ -108,7 +108,7 @@ def test_only_completed_backup_counts_for_retry_timer(tmp_path, monkeypatch):
     from freya.storage.custody import BACKEND_DPAPI, MemoryKeyStore
 
     monkeypatch.setattr(
-        backup, 'default_custody', lambda: MemoryKeyStore(BACKEND_DPAPI),
+        backup, 'default_custody', lambda environ=None: MemoryKeyStore(BACKEND_DPAPI),
     )
     source, target = tmp_path / 'synthetic-source', tmp_path / 'backups'
     source.mkdir()
@@ -126,7 +126,7 @@ def test_failed_manifest_publication_is_not_a_completed_backup(tmp_path, monkeyp
     from freya.storage.custody import BACKEND_DPAPI, MemoryKeyStore
 
     monkeypatch.setattr(
-        backup, 'default_custody', lambda: MemoryKeyStore(BACKEND_DPAPI),
+        backup, 'default_custody', lambda environ=None: MemoryKeyStore(BACKEND_DPAPI),
     )
     source, target = tmp_path / 'synthetic-source', tmp_path / 'backups'
     source.mkdir()

@@ -13,8 +13,10 @@ methods so a test can stand in for any of them:
   is how Credential Manager protects a secret for the current user. The
   wrapped bytes travel in the backup. There is no second key file.
 - Linux: the Secret Service when a session offers it. Otherwise the
-  kernel keyring, which lives in kernel memory and does not survive a
-  reboot. Otherwise nothing: the caller must pass a passphrase.
+  caller must pass a passphrase. The kernel keyring is not a fallback.
+  It is used only when ``FREYA_BACKUP_KERNEL_KEYRING`` is exactly ``1``.
+  That store is session memory and is gone after a reboot, so a backup
+  made that way opens later only with the passphrase or the recovery key.
 - macOS: the Keychain. The item is marked not to sync off this Mac, and
   a prompt is a refusal rather than a wait.
 
@@ -22,12 +24,16 @@ methods so a test can stand in for any of them:
 store answers. That is the silent fallback this module does not have,
 so the system stores are called directly and a missing one refuses.
 
-A passphrase is stretched with argon2id at the OWASP Password Storage
-Cheat Sheet's minimum Argon2id configuration: 19 MiB of memory, 2
-iterations, parallelism 1 (``m=19456``, ``t=2``, ``p=1``). The same
-numbers are used on every OS and are written into the wrap. Any other
-set is refused before the stretch runs, so a tampered wrap cannot ask
-for a huge allocation. The stretch is for a passphrase a person chose.
+A passphrase is stretched with argon2id at 256 MiB of memory, 3
+iterations and parallelism 4. That is stronger than RFC 9106's second
+recommended profile (64 MiB, 3 iterations, parallelism 4) and the same
+on every OS. The numbers are written into the wrap, and an unlock uses
+the numbers it finds there, so a later backup can raise them without a
+new file format. A wrap below that floor, or above the ceiling in
+``params_acceptable``, is refused before argon2 runs. On the Linux host
+that timed the scratch drill on 2026-11-14, one stretch took about a
+quarter of a second. A slower machine should still finish in a few
+seconds. The stretch is for a passphrase a person chose.
 The recovery key is already 32 random bytes and is used as an AES-256
 key directly.
 
@@ -63,13 +69,23 @@ class CustodyUnavailable(BackupRefused):
     """The OS keystore cannot wrap or unwrap. Nothing is written in its place."""
 
 
-# OWASP Password Storage Cheat Sheet, Argon2id minimum configuration.
-# argon2-cffi takes memory in KiB: 19 MiB is 19 * 1024.
-ARGON2_MEMORY_KIB = 19 * 1024
-ARGON2_TIME_COST = 2
-ARGON2_PARALLELISM = 1
+# Stronger than RFC 9106's second recommended Argon2id profile
+# (64 MiB, t=3, p=4). argon2-cffi takes memory in KiB.
+# 256 MiB, three passes, four lanes. Identical on every OS.
+ARGON2_MEMORY_KIB = 256 * 1024
+ARGON2_TIME_COST = 3
+ARGON2_PARALLELISM = 4
+# A later backup may raise the cost. These are the most this reader
+# will run, so a tampered wrap cannot ask for an unbounded stretch.
+ARGON2_MEMORY_MAX_KIB = 1024 * 1024
+ARGON2_TIME_MAX = 8
+ARGON2_PARALLELISM_MAX = 8
 ARGON2_SALT_LEN = 16
 PASSPHRASE_PARAMS = (ARGON2_MEMORY_KIB, ARGON2_TIME_COST, ARGON2_PARALLELISM)
+
+# Exact value "1" opts in. Anything else, including unset, does not.
+# The kernel keyring is session-only and is never selected on its own.
+KERNEL_KEYRING_VARIABLE = "FREYA_BACKUP_KERNEL_KEYRING"
 
 BACKEND_DPAPI = 1
 BACKEND_SECRET_SERVICE = 2
@@ -118,11 +134,39 @@ def os_associated(backend_id: int, key_id: bytes, purpose: bytes) -> bytes:
     return b"freya-os-wrap" + bytes([backend_id & 0xFF]) + bytes(key_id) + purpose
 
 
-def passphrase_associated(key_id: bytes, purpose: bytes, salt: bytes) -> bytes:
-    memory, time_cost, parallelism = PASSPHRASE_PARAMS
+def params_acceptable(params: Tuple[int, int, int]) -> bool:
+    """
+    True when a stored wrap is at or above the floor and within the ceiling.
+
+    The floor is the set new wraps are written with. Below it is a weaker
+    stretch and is refused. Above the ceiling is refused before argon2 runs.
+    """
+    if (
+        not isinstance(params, tuple)
+        or len(params) != 3
+        or not all(isinstance(value, int) for value in params)
+    ):
+        return False
+
+    memory, time_cost, parallelism = params
+
+    return (
+        ARGON2_MEMORY_KIB <= memory <= ARGON2_MEMORY_MAX_KIB
+        and ARGON2_TIME_COST <= time_cost <= ARGON2_TIME_MAX
+        and ARGON2_PARALLELISM <= parallelism <= ARGON2_PARALLELISM_MAX
+    )
+
+
+def passphrase_associated(
+    key_id: bytes, purpose: bytes, salt: bytes, params: Tuple[int, int, int],
+) -> bytes:
+    memory, time_cost, parallelism = params
 
     if purpose not in _PURPOSES or len(key_id) != KEY_ID_LEN or len(salt) != ARGON2_SALT_LEN:
         raise BackupRefused("The backup key is not usable.")
+
+    if not params_acceptable(params) or parallelism > 255:
+        raise BackupRefused("The backup names a passphrase setup this Freya does not use.")
 
     return (
         b"freya-pass-wrap"
@@ -150,12 +194,15 @@ def _check_passphrase(passphrase: str) -> None:
 
 def derive_passphrase_kek(passphrase: str, salt: bytes, params: Tuple[int, int, int]) -> bytes:
     """
-    Stretch a passphrase. Parameters other than the one documented set
-    are refused before argon2 runs.
+    Stretch a passphrase with the parameters stored on the wrap.
+
+    A set below the floor, or above the ceiling, is refused before
+    argon2 runs. New wraps are written at the floor. A later backup
+    may write a higher set and this reader will honor it.
     """
     _check_passphrase(passphrase)
 
-    if params != PASSPHRASE_PARAMS or len(salt) != ARGON2_SALT_LEN:
+    if not params_acceptable(params) or len(salt) != ARGON2_SALT_LEN:
         raise BackupRefused("The backup names a passphrase setup this Freya does not use.")
 
     memory, time_cost, parallelism = params
@@ -173,7 +220,9 @@ def derive_passphrase_kek(passphrase: str, salt: bytes, params: Tuple[int, int, 
 
 def _passphrase_body(kek: bytes, payload: bytes, *, key_id: bytes, purpose: bytes, salt: bytes) -> bytes:
     memory, time_cost, parallelism = PASSPHRASE_PARAMS
-    wrapped = wrap_with_kek(kek, payload, passphrase_associated(key_id, purpose, salt))
+    wrapped = wrap_with_kek(
+        kek, payload, passphrase_associated(key_id, purpose, salt, PASSPHRASE_PARAMS),
+    )
 
     return salt + struct.pack(">IIB", memory, time_cost, parallelism) + wrapped
 
@@ -208,9 +257,12 @@ def open_passphrase_body(passphrase: str, body: bytes, *, key_id: bytes, purpose
 
     salt = body[:ARGON2_SALT_LEN]
     memory, time_cost, parallelism = struct.unpack(">IIB", body[ARGON2_SALT_LEN:header])
-    kek = derive_passphrase_kek(passphrase, salt, (memory, time_cost, parallelism))
+    params = (memory, time_cost, parallelism)
+    kek = derive_passphrase_kek(passphrase, salt, params)
 
-    return unwrap_with_kek(kek, body[header:], passphrase_associated(key_id, purpose, salt))
+    return unwrap_with_kek(
+        kek, body[header:], passphrase_associated(key_id, purpose, salt, params),
+    )
 
 
 def make_recovery_body(recovery_raw: bytes, dek: bytes, key_id: bytes) -> bytes:
@@ -344,22 +396,30 @@ class MemoryKeyStore:
         self._kek = None
 
 
-def choose_linux(secret, kernel):
+def kernel_keyring_opted_in(environ=None) -> bool:
+    """True only for the exact config value ``1``. Unset is not an opt-in."""
+    environ = os.environ if environ is None else environ
+
+    return environ.get(KERNEL_KEYRING_VARIABLE) == "1"
+
+
+def choose_linux(secret, kernel, *, kernel_opt_in=False):
     """
-    Secret Service when it answers, otherwise the kernel keyring, otherwise
-    a refusal. The order is the one ADR-015 names. It is not a fallback to
-    a file, and a wrap records which of the two was used.
+    Secret Service when it answers. Otherwise a refusal, which means the
+    caller must pass a passphrase. The kernel keyring is consulted only
+    when ``kernel_opt_in`` is true. It is not a silent fallback: a key
+    kept there disappears on reboot.
     """
     if secret.available():
         return secret
 
-    if kernel.available():
+    if kernel_opt_in and kernel is not None and kernel.available():
         return kernel
 
     return NoKeyStore()
 
 
-def select_backend(system: str, secret, kernel, windows, mac):
+def select_backend(system: str, secret, kernel, windows, mac, *, kernel_opt_in=False):
     """The one backend for ``system``. A different OS is not tried."""
     if system == "win32":
         return windows
@@ -368,7 +428,7 @@ def select_backend(system: str, secret, kernel, windows, mac):
         return mac
 
     if system == "linux":
-        return choose_linux(secret, kernel)
+        return choose_linux(secret, kernel, kernel_opt_in=kernel_opt_in)
 
     return NoKeyStore()
 
@@ -670,10 +730,13 @@ class SecretServiceBackend:
 
 class KernelKeyringBackend:
     """
-    The kernel keyring, for a Linux machine with no Secret Service
-    session. The key-encryption key is in kernel memory. It is gone
-    after a reboot, and the recovery key or a passphrase is what opens
-    a backup then. Nothing is written to a file here.
+    The kernel keyring. Session memory only: the key-encryption key is
+    gone after a reboot, and the recovery key or a passphrase is what
+    opens a backup made with it. Nothing is written to a file here.
+
+    This backend is not selected on its own. ``FREYA_BACKUP_KERNEL_KEYRING``
+    must be exactly ``1``. A headless machine without that setting, and
+    without Secret Service, waits for the passphrase.
     """
 
     backend_id = BACKEND_KERNEL_KEYRING
@@ -1179,14 +1242,22 @@ class MacKeychainBackend:
             self._release(foundation, query, *owned)
 
 
-def default_custody():
-    """The backend for this operating system, or a refusal when it has none."""
+def default_custody(environ=None):
+    """
+    The backend for this operating system, or a refusal when it has none.
+
+    On Linux that is Secret Service, or the kernel keyring when
+    ``environ`` opts in, or a refusal. The refusal asks for a passphrase.
+    """
+    opted = kernel_keyring_opted_in(environ)
+
     return select_backend(
         sys.platform,
         SecretServiceBackend(),
-        KernelKeyringBackend(),
+        KernelKeyringBackend() if opted else None,
         WindowsDpapiBackend(),
         MacKeychainBackend(),
+        kernel_opt_in=opted,
     )
 
 
@@ -1202,9 +1273,12 @@ def platform_backend(account: str):
         return MacKeychainBackend(account=account)
 
     if sys.platform.startswith("linux"):
+        # The probe does not opt into the kernel keyring. A missing
+        # Secret Service is a refusal, the same as a backup with no config.
         return choose_linux(
             SecretServiceBackend(account=account),
-            KernelKeyringBackend(description=account),
+            None,
+            kernel_opt_in=False,
         )
 
     return NoKeyStore()

@@ -8,6 +8,7 @@ or a key anyone keeps.
 """
 
 import os
+import struct
 import sys
 
 import pytest
@@ -16,12 +17,15 @@ from freya.storage.crypto import KEY_LEN, BackupRefused
 from freya.storage.custody import (
     ARGON2_MEMORY_KIB,
     ARGON2_PARALLELISM,
+    ARGON2_SALT_LEN,
     ARGON2_TIME_COST,
     BACKEND_DPAPI,
     BACKEND_KERNEL_KEYRING,
     BACKEND_KEYCHAIN,
     BACKEND_SECRET_SERVICE,
+    KERNEL_KEYRING_VARIABLE,
     PASSPHRASE_PARAMS,
+    PURPOSE_DEK,
     CustodyUnavailable,
     KernelKeyringBackend,
     MacKeychainBackend,
@@ -30,8 +34,12 @@ from freya.storage.custody import (
     SecretServiceBackend,
     WindowsDpapiBackend,
     choose_linux,
+    default_custody,
     derive_passphrase_kek,
     format_recovery_key,
+    kernel_keyring_opted_in,
+    open_passphrase_body,
+    params_acceptable,
     parse_recovery_key,
     platform_backend,
     prompt_passphrase,
@@ -94,12 +102,24 @@ def test_linux_uses_secret_service_before_the_kernel_keyring():
     assert choose_linux(secret, kernel) is secret
 
 
-def test_linux_uses_the_kernel_keyring_when_secret_service_is_missing():
+def test_linux_does_not_fall_back_to_the_kernel_keyring():
+    secret = MemoryKeyStore(BACKEND_SECRET_SERVICE)
+    secret.present = False
+    kernel = MemoryKeyStore(BACKEND_KERNEL_KEYRING)
+    chosen = choose_linux(secret, kernel)
+
+    assert kernel.available()
+    with pytest.raises(CustodyUnavailable, match="passphrase"):
+        chosen.wrap(os.urandom(KEY_LEN), key_id=os.urandom(16))
+
+
+def test_linux_uses_the_kernel_keyring_only_when_opted_in():
     secret = MemoryKeyStore(BACKEND_SECRET_SERVICE)
     secret.present = False
     kernel = MemoryKeyStore(BACKEND_KERNEL_KEYRING)
 
-    assert choose_linux(secret, kernel) is kernel
+    assert choose_linux(secret, kernel, kernel_opt_in=True) is kernel
+    assert choose_linux(secret, None, kernel_opt_in=True).available() is False
 
 
 def test_linux_refuses_when_neither_keystore_is_present():
@@ -157,11 +177,17 @@ def test_a_damaged_recovery_key_is_refused_without_being_repeated():
     assert "this-is-not-a-key" not in str(refused.value)
 
 
-def test_passphrase_parameters_are_the_documented_argon2id_set():
-    assert PASSPHRASE_PARAMS == (19 * 1024, 2, 1)
-    assert ARGON2_MEMORY_KIB == 19456
-    assert ARGON2_TIME_COST == 2
-    assert ARGON2_PARALLELISM == 1
+def test_passphrase_parameters_are_the_stronger_argon2id_profile():
+    # RFC 9106's second recommendation is 64 MiB, t=3, p=4. This is stronger.
+    assert PASSPHRASE_PARAMS == (256 * 1024, 3, 4)
+    assert ARGON2_MEMORY_KIB == 262144
+    assert ARGON2_TIME_COST == 3
+    assert ARGON2_PARALLELISM == 4
+    assert params_acceptable((256 * 1024, 3, 4))
+    assert params_acceptable((512 * 1024, 4, 4))
+    assert not params_acceptable((64 * 1024, 3, 4))
+    assert not params_acceptable((256 * 1024, 2, 4))
+    assert not params_acceptable((256 * 1024, 3, 1))
     salt = os.urandom(16)
     first = derive_passphrase_kek("a made-up passphrase", salt, PASSPHRASE_PARAMS)
     second = derive_passphrase_kek("a made-up passphrase", salt, PASSPHRASE_PARAMS)
@@ -169,7 +195,73 @@ def test_passphrase_parameters_are_the_documented_argon2id_set():
     assert first == second and len(first) == KEY_LEN
 
     with pytest.raises(BackupRefused, match="setup"):
-        derive_passphrase_kek("a made-up passphrase", salt, (8, 1, 1))
+        derive_passphrase_kek("a made-up passphrase", salt, (19 * 1024, 2, 1))
+
+
+def test_unwrap_rejects_a_new_wrap_below_the_argon2_floor():
+    """A wrap that names a weaker stretch is refused before it is hashed."""
+    salt = os.urandom(ARGON2_SALT_LEN)
+    weak = (
+        (19 * 1024, 2, 1),
+        (64 * 1024, 3, 4),
+        (256 * 1024, 2, 4),
+        (256 * 1024, 3, 1),
+        (2048 * 1024, 3, 4),
+    )
+
+    for memory, time_cost, parallelism in weak:
+        body = (
+            salt
+            + struct.pack(">IIB", memory, time_cost, parallelism)
+            + os.urandom(12 + KEY_LEN + 16)
+        )
+
+        with pytest.raises(BackupRefused, match="setup"):
+            open_passphrase_body(
+                "a made-up passphrase",
+                body,
+                key_id=os.urandom(16),
+                purpose=PURPOSE_DEK,
+            )
+
+
+def test_the_kernel_keyring_opt_in_is_only_the_exact_value(monkeypatch):
+    assert kernel_keyring_opted_in({}) is False
+    assert kernel_keyring_opted_in({KERNEL_KEYRING_VARIABLE: "1"}) is True
+    assert kernel_keyring_opted_in({KERNEL_KEYRING_VARIABLE: "true"}) is False
+    assert kernel_keyring_opted_in({KERNEL_KEYRING_VARIABLE: "0"}) is False
+
+    monkeypatch.setattr(SecretServiceBackend, "available", lambda self: False)
+    monkeypatch.setattr(KernelKeyringBackend, "available", lambda self: True)
+    plain = default_custody(environ={})
+    opted = default_custody(environ={KERNEL_KEYRING_VARIABLE: "1"})
+
+    if sys.platform.startswith("linux"):
+        assert isinstance(plain, NoKeyStore)
+        assert isinstance(opted, KernelKeyringBackend)
+    else:
+        assert not isinstance(plain, KernelKeyringBackend)
+        assert not isinstance(opted, KernelKeyringBackend)
+        assert type(plain) is type(opted)
+
+
+def test_the_kernel_keyring_backend_round_trips_or_refuses_when_asked():
+    """Session-only store. Missing means refuse. This is not a skip."""
+    backend = KernelKeyringBackend(description="freya-test-" + os.urandom(4).hex())
+    dek = os.urandom(KEY_LEN)
+    key_id = os.urandom(16)
+
+    try:
+        if not backend.available():
+            with pytest.raises(CustodyUnavailable):
+                backend.wrap(dek, key_id=key_id)
+            return
+
+        blob = backend.wrap(dek, key_id=key_id)
+        assert dek not in blob
+        assert backend.unwrap(blob, key_id=key_id) == dek
+    finally:
+        backend.discard()
 
 
 def test_a_passphrase_prompt_wants_the_same_answer_twice():

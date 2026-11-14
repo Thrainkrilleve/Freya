@@ -22,7 +22,7 @@ WHEN = datetime(2026, 10, 9, 17, 30, 0)
 def keystore(monkeypatch):
     """A stand-in keystore, so these tests do not touch a real one."""
     store = MemoryKeyStore(BACKEND_DPAPI)
-    monkeypatch.setattr(backup, "default_custody", lambda: store)
+    monkeypatch.setattr(backup, "default_custody", lambda environ=None: store)
     return store
 
 

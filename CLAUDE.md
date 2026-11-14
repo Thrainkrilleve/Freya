@@ -82,8 +82,10 @@ Rules for the spec:
   the deletion ledger kept outside `data/`, and settings to a dated folder on another
   drive and refuses the same drive; it never moves or deletes. New backups are
   sealed per file (AES-256-GCM). The data key is wrapped by the OS keystore, or
-  by an argon2id passphrase when there is no keystore, and by a recovery key that
-  is shown once. A backup made before encryption restores only with the explicit
+  by an argon2id passphrase (256 MiB, time 3, parallelism 4) when there is no
+  keystore, and by a recovery key that is shown once. Linux uses Secret Service
+  or that passphrase. The kernel keyring is only used when
+  `FREYA_BACKUP_KERNEL_KEYRING=1`, and it does not survive a reboot. A backup made before encryption restores only with the explicit
   migration flag. `src/freya/storage/restore.py`
   puts a dated backup back and does not replace a newer deletion ledger with an older
   copy. `devtools/restore_drill.py` times that round trip on encrypted scratch data. Freya runs it as she closes, beside the rest of

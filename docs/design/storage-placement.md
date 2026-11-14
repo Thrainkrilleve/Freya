@@ -79,14 +79,21 @@ changed header fails the same check as a changed file. The data key is not writt
 down. Wraps of it travel in `keys.bin`.
 
 The machine's keystore holds the key-encryption key when it has one: DPAPI on
-Windows, the Secret Service on Linux (or the kernel keyring when there is no Secret
-Service session), and the Keychain on macOS. The Keychain item is not synced off
-that Mac. Nothing here falls back to a plaintext backup or to a key file beside the
-data. If the keystore is missing, the command asks for a passphrase. The passphrase
-is stretched with argon2id at 19 MiB, 2 iterations and parallelism 1, the same on
-every OS (the OWASP Password Storage Cheat Sheet's minimum Argon2id configuration).
-It is typed at the prompt. It is not an argument and it is not read from the
-environment.
+Windows, the Secret Service on Linux, and the Keychain on macOS. The Keychain item
+is not synced off that Mac. Linux does not fall back to the kernel keyring. That
+store is session memory and is gone after a reboot, so it is used only when
+`FREYA_BACKUP_KERNEL_KEYRING` is exactly `1`. Without Secret Service, and without
+that setting, the command asks for a passphrase. Nothing here falls back to a
+plaintext backup or to a key file beside the data.
+
+The passphrase is stretched with argon2id at 256 MiB, 3 iterations and parallelism
+4, the same on every OS. That is stronger than RFC 9106's second recommended
+profile (64 MiB, 3 iterations, parallelism 4). The numbers are stored in the wrap,
+and an unlock uses the numbers it finds there, so they can be raised later. A wrap
+below that floor is refused. On the Linux host that timed the scratch drill, one
+stretch took about a quarter of a second; a slower machine should still finish in
+a few seconds. The passphrase is typed at the prompt. It is not an argument and it
+is not read from the environment.
 
 The first backup also makes a recovery key and prints it once on a terminal, to be
 written down and kept off the machine. That key unwraps the data key on any OS.

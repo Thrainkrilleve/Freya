@@ -442,7 +442,7 @@ def back_up(
         raise BackupRefused("There was nothing to back up.")
 
     if custody is None:
-        custody = default_custody()
+        custody = default_custody(environ)
 
     bundle_path = bundle_path_for(data_dir, environ)
     existing = None

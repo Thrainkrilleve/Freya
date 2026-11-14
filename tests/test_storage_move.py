@@ -162,7 +162,7 @@ def closing(tmp_path, monkeypatch):
         backup, "drive_of", lambda path: "C" if str(path).startswith(str(folder)) else "D",
     )
     store = MemoryKeyStore(BACKEND_DPAPI)
-    monkeypatch.setattr(backup, "default_custody", lambda: store)
+    monkeypatch.setattr(backup, "default_custody", lambda environ=None: store)
     return folder, {"FREYA_BACKUP_DIR": str(target)}, target
 
 
