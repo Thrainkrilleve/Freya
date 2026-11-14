@@ -80,9 +80,13 @@ Rules for the spec:
   `DATA_KINDS`; a test checks. `src/freya/storage/backup.py` copies the databases
   (control, usage, memory, tasks, and `media/freya_media.db`, with SQLite's backup),
   the deletion ledger kept outside `data/`, and settings to a dated folder on another
-  drive and refuses the same drive; it never moves or deletes. `src/freya/storage/restore.py`
+  drive and refuses the same drive; it never moves or deletes. New backups are
+  sealed per file (AES-256-GCM). The data key is wrapped by the OS keystore, or
+  by an argon2id passphrase when there is no keystore, and by a recovery key that
+  is shown once. A backup made before encryption restores only with the explicit
+  migration flag. `src/freya/storage/restore.py`
   puts a dated backup back and does not replace a newer deletion ledger with an older
-  copy. `devtools/restore_drill.py` times that round trip on scratch data. Freya runs it as she closes, beside the rest of
+  copy. `devtools/restore_drill.py` times that round trip on encrypted scratch data. Freya runs it as she closes, beside the rest of
   closing and for at most 20 seconds, unless one was made in the last hour
   (`FREYA_BACKUP=0` turns it off). `src/freya/storage/locations.py` says where a
   store lives: the six in `BULK_STORES` follow the owner's setting in

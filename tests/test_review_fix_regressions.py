@@ -104,7 +104,12 @@ def test_partial_backup_does_not_suppress_retry(tmp_path, monkeypatch, content):
     assert len(calls) == 1
 
 
-def test_only_completed_backup_counts_for_retry_timer(tmp_path):
+def test_only_completed_backup_counts_for_retry_timer(tmp_path, monkeypatch):
+    from freya.storage.custody import BACKEND_DPAPI, MemoryKeyStore
+
+    monkeypatch.setattr(
+        backup, 'default_custody', lambda: MemoryKeyStore(BACKEND_DPAPI),
+    )
     source, target = tmp_path / 'synthetic-source', tmp_path / 'backups'
     source.mkdir()
     (source / 'freya_settings.json').write_text('{}', 'utf-8')
@@ -118,6 +123,11 @@ def test_only_completed_backup_counts_for_retry_timer(tmp_path):
 
 
 def test_failed_manifest_publication_is_not_a_completed_backup(tmp_path, monkeypatch):
+    from freya.storage.custody import BACKEND_DPAPI, MemoryKeyStore
+
+    monkeypatch.setattr(
+        backup, 'default_custody', lambda: MemoryKeyStore(BACKEND_DPAPI),
+    )
     source, target = tmp_path / 'synthetic-source', tmp_path / 'backups'
     source.mkdir()
     (source / 'freya_settings.json').write_text('{}', 'utf-8')

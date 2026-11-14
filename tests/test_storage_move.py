@@ -6,6 +6,7 @@ import pytest
 
 from freya.storage import backup, move
 from freya.storage.backup import back_up_on_close, latest
+from freya.storage.custody import BACKEND_DPAPI, MemoryKeyStore
 from freya.storage.locations import (
     BULK_STORES,
     bulk_root,
@@ -160,6 +161,8 @@ def closing(tmp_path, monkeypatch):
     monkeypatch.setattr(
         backup, "drive_of", lambda path: "C" if str(path).startswith(str(folder)) else "D",
     )
+    store = MemoryKeyStore(BACKEND_DPAPI)
+    monkeypatch.setattr(backup, "default_custody", lambda: store)
     return folder, {"FREYA_BACKUP_DIR": str(target)}, target
 
 
@@ -219,7 +222,14 @@ def test_a_good_backup_is_silent_until_it_is_old(closing):
 
     folder, environ, target = closing
     back_up_on_close(folder, NOW, environ)
+    waiting = startup_warning(folder, NOW + timedelta(days=1), environ)
+    assert waiting == [
+        "A recovery key for backups has not been written down yet. "
+        "Run python -m freya.storage.backup --show-recovery-key and keep "
+        "what it prints off this machine."
+    ]
 
+    backup.acknowledge_recovery_key(folder, environ=environ)
     assert startup_warning(folder, NOW + timedelta(days=1), environ) == []
     old = startup_warning(folder, NOW + timedelta(days=5), environ)
     assert len(old) == 1 and "5 days old" in old[0]

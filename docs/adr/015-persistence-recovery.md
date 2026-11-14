@@ -28,7 +28,37 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   forgotten after the backup stays forgotten. If the newer ledger is gone, or
   both files are copied by hand, a forgetting made after the backup can come
   back. This is not full MEM-008.
-- No encryption at rest.
+- New backups are authenticated per-file encryption. AES-256-GCM, format
+  version 1, in `storage/crypto.py`. Each file carries a header (magic,
+  format version, key id, nonce) and that header, with the file name, is
+  the associated data. A tampered file or a wrong key fails the
+  authentication check. Plaintext is written only after the whole file
+  checks, so a failure does not leave a partial plaintext file. One random
+  data key seals every file in that backup. Key-encryption keys wrap it,
+  and the wraps travel in `keys.bin`. The data key is not written in the clear.
+- Key custody is the wrap and unwrap interface in `storage/custody.py`.
+  Windows uses DPAPI (`CryptProtectData`), which is how Credential Manager
+  protects a secret for the current user, and the wrapped bytes travel with
+  the backup. Linux uses the Secret Service when a session offers it,
+  otherwise the kernel keyring, which does not survive a reboot. macOS uses
+  the Keychain and does not sync the item off the Mac. A missing store is a
+  refusal. There is no silent fallback to plaintext, or to a key file beside
+  the data. Callers then pass a passphrase or the recovery key, and a failed
+  attempt does not try the next one.
+- A passphrase is stretched with argon2id at the OWASP Password Storage
+  Cheat Sheet's minimum Argon2id configuration: 19 MiB of memory, 2
+  iterations, parallelism 1. The same numbers are used on every OS and are
+  stored in the wrap. Any other set is refused before the stretch runs.
+- A 256-bit recovery key is created with the data key, shown once on a
+  terminal so it can be written down, and unwraps that data key on any OS.
+  It is not logged and it is not stored in plaintext. Until it has been
+  shown, a sealed copy is kept outside `data/` so it can still be printed;
+  acknowledging it removes that copy.
+- A backup made before encryption restores only when the caller passes the
+  explicit migration flag (`allow_unencrypted`, or `--allow-unencrypted` on
+  the command). New backups are encrypted. The proposed decision below is
+  unchanged and is not approved. Live database encryption and key rotation
+  are not built.
 
 ## Validation owed
 
@@ -42,14 +72,32 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   0.01 s, inside the 24 h RPO. This is not a measurement of the owner's
   databases, and it is not an acceptance result. Later runs of
   `tests/test_restore_drill.py` check the same drill stays inside those
-  targets. They do not rewrite this figure.
+  targets. They do not rewrite this figure. Those three times were taken
+  before backup encryption.
 - Protected mode is on at startup. A fact forgotten after a backup stays
   forgotten when that backup is restored, covered by
   `test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore` with
   made-up text in a temporary directory. The owner's own backup has not been
   drilled. Full MEM-008 is still open.
-- Backup encryption and key recovery. The proposed decision below is not
-  approved, and nothing in it is built.
+- Backup encryption and key recovery. The scratch restore drill now seals
+  each file, opens the backup with the recovery key from that run, and
+  checks integrity, row counts, the audit chain, and the ledger rule.
+  `tests/test_backup_encryption.py` covers a round trip, a changed byte, a
+  wrong key, the header and format version, the passphrase, the recovery
+  key, and that a plaintext backup is refused unless the migration flag is
+  set. `tests/test_key_custody.py` covers a fake store for Windows DPAPI,
+  Linux Secret Service, the Linux kernel keyring, and the macOS Keychain.
+  On each CI runner the real store either round-trips a throwaway key or
+  refuses; a refusal is the assertion, not a skipped test. The foundation
+  workflow runs that file on ubuntu, windows, and macos. Measured on Linux
+  scratch data on 2026-11-14 (`python devtools/restore_drill.py`, encrypted
+  files, synthetic rows in a temporary directory): three runs finished in
+  0.076 s, 0.085 s and 0.087 s. One of those spent 0.037 s backing up,
+  0.005 s restoring and 0.005 s checking. The gap from that backup to the
+  end of the check was 0.015 s. That is inside the 4 h RTO and the 24 h RPO.
+  This is not a measurement of the owner's databases, and it is not an
+  acceptance result. It does not replace the 2026-11-13 figures above.
+  Live database encryption and key rotation remain open.
 - SQLite durability settings (each audited call costs 30 to 60 ms in synchronous
   writes; provisional).
 

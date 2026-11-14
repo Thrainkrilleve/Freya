@@ -20,13 +20,29 @@ from freya.memory.deletion_ledger import ledger_path_for
 from freya.memory.memory_manager import MemoryManager
 from freya.memory.protection import ProtectionSetupError, ensure_memory_protection
 from freya.paths import DATA_DIR_VARIABLE
-from freya.storage.backup import BackupRefused, back_up
+from freya.storage import backup
+from freya.storage.backup import BackupRefused, back_up, read_manifest, read_member, replace_member
+from freya.storage.custody import BACKEND_KEYCHAIN, MemoryKeyStore
 from freya.storage.restore import restore
-from freya.storage.restore_drill import WHEN, run_drill
+from freya.storage.restore_drill import SCRATCH_FACT, WHEN, run_drill
 
 
 REPO = Path(__file__).resolve().parents[1]
 FACT = "The drill code is 1357."
+
+
+@pytest.fixture
+def keystore(monkeypatch):
+    """A stand-in keystore. Direct backups in this file go through it."""
+    store = MemoryKeyStore(BACKEND_KEYCHAIN)
+    monkeypatch.setattr(backup, "default_custody", lambda: store)
+    return store
+
+
+def _backup_ledger(folder, keystore, directory):
+    path = directory / "backup-ledger.db"
+    path.write_bytes(read_member(folder, "deletion_ledger.db", custody=keystore))
+    return path
 
 
 @pytest.fixture
@@ -87,23 +103,6 @@ def _insert_tombstone(path: Path, artifact_id: str) -> None:
         connection.close()
 
 
-def _retouch(folder: Path, name: str) -> None:
-    """Point the manifest at a file the test changed on purpose."""
-    manifest_path = folder / "manifest.json"
-    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    path = folder / name
-    digest = hashlib.sha256(path.read_bytes()).hexdigest()
-
-    for entry in manifest["copied"]:
-        if entry["name"] == name:
-            entry["bytes"] = path.stat().st_size
-            entry["sha256"] = digest
-
-    temporary = manifest_path.with_suffix(".tmp")
-    temporary.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    temporary.replace(manifest_path)
-
-
 def test_protection_is_applied_once(scratch):
     first = ensure_memory_protection(environ={})
     second = ensure_memory_protection(environ={})
@@ -123,7 +122,7 @@ def test_a_ledger_inside_the_data_folder_is_refused(scratch):
     assert not (scratch / "freya_memory.db").exists()
 
 
-def test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore(scratch, tmp_path):
+def test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore(scratch, tmp_path, keystore):
     ledger = ensure_memory_protection(environ={})
     memory = MemoryManager(ledger)
 
@@ -141,11 +140,11 @@ def test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore(scratch, 
     )
     copied = [
         entry["name"]
-        for entry in json.loads((folder / "manifest.json").read_text(encoding="utf-8"))["copied"]
+        for entry in read_manifest(folder, custody=keystore)["copied"]
     ]
     assert "freya_memory.db" in copied
     assert "deletion_ledger.db" in copied
-    assert _tombstones(folder / "deletion_ledger.db") == []
+    assert _tombstones(_backup_ledger(folder, keystore, tmp_path)) == []
 
     memory = MemoryManager(ledger)
 
@@ -157,7 +156,7 @@ def test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore(scratch, 
 
     restore(folder, scratch, environ={})
     assert _tombstones(ledger) != []
-    assert _tombstones(folder / "deletion_ledger.db") == []
+    assert _tombstones(_backup_ledger(folder, keystore, tmp_path)) == []
     assert FACT not in _contents(scratch / "freya_memory.db")
 
     memory = MemoryManager(ledger)
@@ -169,7 +168,7 @@ def test_a_fact_forgotten_after_a_backup_stays_forgotten_after_restore(scratch, 
         _close(memory)
 
 
-def test_a_forgetting_comes_back_when_the_newer_ledger_is_gone(scratch, tmp_path):
+def test_a_forgetting_comes_back_when_the_newer_ledger_is_gone(scratch, tmp_path, keystore):
     """
     The backup's ledger is the only one left, and it was taken before
     the forgetting. Restore cannot invent a tombstone it never had.
@@ -199,7 +198,7 @@ def test_a_forgetting_comes_back_when_the_newer_ledger_is_gone(scratch, tmp_path
     assert _tombstones(ledger) == []
 
 
-def test_a_divergent_ledger_is_not_written_over(scratch, tmp_path):
+def test_a_divergent_ledger_is_not_written_over(scratch, tmp_path, keystore):
     ledger = ensure_memory_protection(environ={})
     memory = MemoryManager(ledger)
 
@@ -212,8 +211,9 @@ def test_a_divergent_ledger_is_not_written_over(scratch, tmp_path):
         scratch, tmp_path / "backups", WHEN, allow_same_drive=True, environ={},
     )
     _insert_tombstone(ledger, "a" * 32)
-    _insert_tombstone(folder / "deletion_ledger.db", "b" * 32)
-    _retouch(folder, "deletion_ledger.db")
+    changed = _backup_ledger(folder, keystore, tmp_path)
+    _insert_tombstone(changed, "b" * 32)
+    replace_member(folder, "deletion_ledger.db", changed.read_bytes(), custody=keystore)
     before = (scratch / "freya_memory.db").read_bytes()
 
     with pytest.raises(BackupRefused, match="does not continue"):
@@ -223,7 +223,7 @@ def test_a_divergent_ledger_is_not_written_over(scratch, tmp_path):
     assert _tombstones(ledger) == [("a" * 32,)]
 
 
-def test_an_older_live_ledger_gains_tombstones_from_the_backup(scratch, tmp_path):
+def test_an_older_live_ledger_gains_tombstones_from_the_backup(scratch, tmp_path, keystore):
     ledger = ensure_memory_protection(environ={})
     memory = MemoryManager(ledger)
 
@@ -235,7 +235,7 @@ def test_an_older_live_ledger_gains_tombstones_from_the_backup(scratch, tmp_path
     older = back_up(
         scratch, tmp_path / "older", WHEN, allow_same_drive=True, environ={},
     )
-    empty = (older / "deletion_ledger.db").read_bytes()
+    empty = read_member(older, "deletion_ledger.db", custody=keystore)
     memory = MemoryManager(ledger)
 
     try:
@@ -283,12 +283,31 @@ def test_the_scratch_drill_restores_every_store(tmp_path):
     assert counts["freya_tasks.db:task"] == 1
     assert "measured on CI scratch data" in result.report()
     assert "not the owner's databases" in result.report()
+    assert "encrypted: yes" in result.report()
+    stored = b""
+    for path in (tmp_path / "drill" / "backups").rglob("*"):
+        if path.is_file():
+            data = path.read_bytes()
+            stored += data
+            assert not data.startswith(b"SQLite format 3")
+    assert SCRATCH_FACT.encode("utf-8") not in stored
 
     data = tmp_path / "drill" / "data"
     ledger = ledger_path_for(data, {})
     assert ledger.is_file()
     assert not ledger.is_relative_to(data)
     assert (data / "freya_memory.db").is_file()
+
+
+def test_the_drill_does_not_touch_the_os_keystore(tmp_path, monkeypatch):
+    def refused():
+        raise AssertionError("the drill used the OS keystore")
+
+    monkeypatch.setattr(backup, "default_custody", refused)
+    result = run_drill(tmp_path / "drill", environ={})
+
+    assert result.ok, result.problems
+    assert result.encrypted
 
 
 def test_the_drill_refuses_the_owners_data_directory(tmp_path, monkeypatch):
@@ -370,8 +389,14 @@ def test_a_backup_that_points_outside_itself_is_refused(tmp_path):
     data = tmp_path / "restored"
     data.mkdir()
 
-    with pytest.raises(BackupRefused, match="should not"):
+    with pytest.raises(BackupRefused, match="not encrypted"):
         restore(folder, data, environ={})
+
+    assert outside.read_text(encoding="utf-8") == "leave me"
+    assert list(data.iterdir()) == []
+
+    with pytest.raises(BackupRefused, match="should not"):
+        restore(folder, data, environ={}, allow_unencrypted=True)
 
     assert outside.read_text(encoding="utf-8") == "leave me"
     assert list(data.iterdir()) == []
