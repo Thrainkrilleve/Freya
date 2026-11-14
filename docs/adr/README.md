@@ -27,7 +27,7 @@ authoritative, the spec follows).
 | [ADR-012](012-durable-workflow-abstraction.md) | Durable workflows | No | Decide whether the alpha needs them |
 | [ADR-013](013-invocation-authorization-revocation.md) | Invocation authorization | Yes, single principal | Waits on 017 |
 | [ADR-014](014-federated-isolation.md) | Per-node isolation tiers; accepted 2026-11-13 | No; `code.run` stays off | Per-tier containment and enrollment probes |
-| [ADR-015](015-persistence-recovery.md) | Persistence and recovery | Yes, unencrypted | A timed restore drill |
+| [ADR-015](015-persistence-recovery.md) | Persistence and recovery. Encryption at rest and key custody proposed by Thrain, 2026-11-13; not approved | Yes, unencrypted | A timed restore drill. The encryption plan is not proven |
 | [ADR-016](016-resource-admission-ownership.md) | Resource admission | Cloud usage yes; GPU no | GPU reservations |
 | [ADR-017](017-gateway-authentication-compatibility.md) | Gateway authentication | First step only | Next architecture piece |
 | [ADR-018](018-external-effects-reconciliation.md) | External effects | Yes, for cloud sends | Restore older than a send |
