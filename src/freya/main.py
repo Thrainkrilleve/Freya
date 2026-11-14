@@ -4,6 +4,8 @@ import urllib.request
 import threading
 
 from freya.core.assistant import FreyaAssistant
+from freya.memory.deletion_ledger import ProtectionSetupError, StorageQuarantined
+from freya.memory.protection import ensure_memory_protection
 from freya.core.model_runtime import ROLE_BACKGROUND
 from freya.core.model_runtime import ModelRuntimeUnavailable
 from freya.gpu.resource_manager import GPUResourceManager
@@ -582,9 +584,19 @@ def main(window_only=False):
             daemon=True,
         ).start()
 
+    # Protected mode replays the deletion ledger before any memory is
+    # read, so a fact forgotten after a backup stays forgotten when
+    # that backup is restored. The ledger is outside the data folder.
+    try:
+        memory_ledger = ensure_memory_protection()
+    except (ProtectionSetupError, StorageQuarantined) as exc:
+        print(f"Memory storage cannot be opened: {exc}")
+        return
+
     freya = FreyaAssistant(
         tool_host=control_plane.model_tools,
         broker=control_plane.broker,
+        memory_ledger_path=memory_ledger,
     )
     # The owner's cloud settings and the one gate a brief could leave
     # by. Assembling it sends nothing and allows nothing: no provider

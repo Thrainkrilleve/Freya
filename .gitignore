@@ -43,6 +43,10 @@ desktop.ini
 # and the window's browser profile
 data/
 
+# Deletion ledger and the pre-protection copy. Outside data/ on purpose,
+# so a copy of data/ does not take the ledger with it.
+freya_deletion_ledger/
+
 # Databases / local memory
 *.db
 *.db-wal

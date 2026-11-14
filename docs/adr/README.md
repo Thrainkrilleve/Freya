@@ -18,7 +18,7 @@ authoritative, the spec follows).
 | [ADR-003](003-provider-lifecycle-isolation.md) | Provider lifecycle | Yes, in-process | A second provider behind one capability |
 | [ADR-004](004-security-domains-federated-sovereignty.md) | Federated sovereignty | No | Not before a second node |
 | [ADR-005](005-context-authority.md) | Context authority | Yes | Clip test for every model tool |
-| [ADR-006](006-memory-vs-knowledge-vs-session.md) | Memory, knowledge, session | Memory and session; no knowledge; deletion ledger off | Decide the knowledge path |
+| [ADR-006](006-memory-vs-knowledge-vs-session.md) | Memory, knowledge, session | Memory and session; no knowledge; deletion ledger on at startup | Decide the knowledge path |
 | [ADR-007](007-resource-intelligence-vram-management.md) | VRAM management | Evict-on-demand only | See 016 |
 | [ADR-008](008-model-runtime-independence.md) | Model runtime independence | Ollama + the Claude CLI route | A second local runtime |
 | [ADR-009](009-trusted-runtime-vs-untrusted-execution.md) | Untrusted execution | By not executing | Blocked on 014 |
@@ -27,7 +27,7 @@ authoritative, the spec follows).
 | [ADR-012](012-durable-workflow-abstraction.md) | Durable workflows | No | Decide whether the alpha needs them |
 | [ADR-013](013-invocation-authorization-revocation.md) | Invocation authorization | Yes, single principal | Waits on 017 |
 | [ADR-014](014-federated-isolation.md) | Per-node isolation tiers; accepted 2026-11-13 | No; `code.run` stays off | Per-tier containment and enrollment probes |
-| [ADR-015](015-persistence-recovery.md) | Persistence and recovery. Encryption at rest and key custody proposed by Thrain, 2026-11-13; not approved | Yes, unencrypted | A timed restore drill. The encryption plan is not proven |
+| [ADR-015](015-persistence-recovery.md) | Persistence and recovery. Encryption at rest and key custody proposed by Thrain, 2026-11-13; not approved | Yes, unencrypted; deletion ledger on at startup | Restore drill measured on CI scratch data. The encryption plan is not proven |
 | [ADR-016](016-resource-admission-ownership.md) | Resource admission | Cloud usage yes; GPU no | GPU reservations |
 | [ADR-017](017-gateway-authentication-compatibility.md) | Gateway authentication | First step only | Next architecture piece |
 | [ADR-018](018-external-effects-reconciliation.md) | External effects | Yes, for cloud sends | Restore older than a send |

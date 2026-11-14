@@ -93,7 +93,9 @@ def test_partial_backup_does_not_suppress_retry(tmp_path, monkeypatch, content):
         (partial / 'manifest.json').write_text(content, 'utf-8')
     assert backup.latest(target) is None
     calls = []
-    monkeypatch.setattr(backup, 'back_up', lambda *args: calls.append(args) or 'attempted')
+    monkeypatch.setattr(
+        backup, 'back_up', lambda *args, **kwargs: calls.append(args) or 'attempted',
+    )
     result = backup.back_up_on_close(
         tmp_path / 'synthetic-source', NOW.replace(tzinfo=None) + timedelta(minutes=5),
         environ={backup.TARGET_VARIABLE: str(target)},
