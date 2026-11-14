@@ -1070,26 +1070,9 @@ class MacKeychainBackend:
     def _dictionary(self, foundation, pairs):
         import ctypes
 
-        class KeyCallbacks(ctypes.Structure):
-            _fields_ = [
-                ("version", ctypes.c_long),
-                ("retain", ctypes.c_void_p),
-                ("release", ctypes.c_void_p),
-                ("copyDescription", ctypes.c_void_p),
-                ("equal", ctypes.c_void_p),
-                ("hash", ctypes.c_void_p),
-            ]
-
-        class ValueCallbacks(ctypes.Structure):
-            _fields_ = [
-                ("version", ctypes.c_long),
-                ("retain", ctypes.c_void_p),
-                ("release", ctypes.c_void_p),
-                ("copyDescription", ctypes.c_void_p),
-                ("equal", ctypes.c_void_p),
-            ]
-
         count = len(pairs)
+        # The arrays have to stay alive for the call. The dictionary copies
+        # the pointer values into its own storage.
         keys = (ctypes.c_void_p * count)(*(key for key, _value in pairs))
         values = (ctypes.c_void_p * count)(*(value for _key, value in pairs))
         foundation.CFDictionaryCreate.argtypes = [
@@ -1097,17 +1080,16 @@ class MacKeychainBackend:
             ctypes.POINTER(ctypes.c_void_p),
             ctypes.POINTER(ctypes.c_void_p),
             ctypes.c_long,
-            ctypes.POINTER(KeyCallbacks),
-            ctypes.POINTER(ValueCallbacks),
+            ctypes.c_void_p,
+            ctypes.c_void_p,
         ]
         foundation.CFDictionaryCreate.restype = ctypes.c_void_p
+        # NULL callbacks. The dictionary does not retain or release its
+        # members, and it does not keep a pointer to a callback struct.
+        # Copying Apple's callback struct and freeing that copy when this
+        # function returned made CFRelease jump through dead memory.
         made = foundation.CFDictionaryCreate(
-            None,
-            keys,
-            values,
-            count,
-            ctypes.byref(KeyCallbacks.in_dll(foundation, "kCFTypeDictionaryKeyCallBacks")),
-            ctypes.byref(ValueCallbacks.in_dll(foundation, "kCFTypeDictionaryValueCallBacks")),
+            None, keys, values, count, None, None,
         )
 
         if not made:
@@ -1116,6 +1098,11 @@ class MacKeychainBackend:
         return made
 
     def _release(self, foundation, *refs) -> None:
+        import ctypes
+
+        foundation.CFRelease.argtypes = [ctypes.c_void_p]
+        foundation.CFRelease.restype = None
+
         for ref in refs:
             if ref:
                 foundation.CFRelease(ref)
