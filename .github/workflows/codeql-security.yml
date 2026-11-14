@@ -11,9 +11,13 @@ on:
   workflow_dispatch:
 permissions:
   contents: read
-  actions: read
 jobs:
   codeql:
+    # codeql-action reads this workflow run even when SARIF is not uploaded.
+    # Results stay an artifact, so this job does not get security-events: write.
+    permissions:
+      contents: read
+      actions: read
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,6 +29,7 @@ jobs:
         with:
           languages: python
           queries: security-extended
+          config-file: ./.github/codeql/codeql-config.yml
       - name: Analyze Python and generate local SARIF
         uses: github/codeql-action/analyze@v3
         with:

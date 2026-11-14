@@ -1,0 +1,10 @@
+# Loaded by .github/workflows/codeql-security.yml (advanced setup).
+# GitHub's default setup does not read this file on its own. The owner sets
+# the repository property github-codeql-config-file to this path, or switches
+# code scanning to advanced setup, for the exclusion to apply there.
+name: "Freya CodeQL config"
+
+# Checksummed third-party browser libraries. three.js calls Math.random for
+# UUIDs and numeric helpers; those calls are not secrets.
+paths-ignore:
+  - "src/freya/gateway/static/vendor/**"

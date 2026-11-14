@@ -8,6 +8,8 @@ on:
       - 'tools/discord_coordinator/**'
       - 'tests/test_discord_coordinator.py'
       - '.github/workflows/discord-coordinator.yml'
+permissions:
+  contents: read
 jobs:
   unit:
     runs-on: ubuntu-latest
