@@ -18,7 +18,7 @@ import threading
 import uuid
 from datetime import datetime, timezone
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.persistence.control_store import DATA_DIR, ControlStore
 from freya.core.providers import ProviderDefinition
 
@@ -173,6 +173,17 @@ class TaskLifecycle:
             TASK_RESUME: self._resume,
         }
 
+        # Every transition writes the journal. Authorizing and running
+        # a task are consequential, and so is recording, finishing,
+        # failing, cancelling, or resuming one. No seed grants them.
+        journal = declare(
+            (
+                "filesystem",
+                "the local task journal, freya_tasks.db, on this machine",
+            ),
+            effect="consequential",
+        )
+
         for name in TASK_CAPABILITIES:
             yield CapabilityDefinition(
                 name=name,
@@ -180,6 +191,7 @@ class TaskLifecycle:
                 provider=TASK_PROVIDER,
                 handler=handlers[name],
                 category="task",
+                declaration=journal,
             )
 
     def create(self, title, check_name) -> str:

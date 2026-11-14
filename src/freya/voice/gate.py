@@ -12,7 +12,7 @@ was brokered (the local owner may wake, hear, speak, and use the Voice
 tab). It names no tool. Removing the seed withdraws the voice path.
 """
 
-from freya.core.capabilities import CapabilityDefinition
+from freya.core.capabilities import CapabilityDefinition, declare
 from freya.core.policy.engine import seed_alpha_policy
 from freya.core.providers import ProviderDefinition
 from freya.core.capabilities.broker import LOCAL_OWNER
@@ -160,6 +160,32 @@ def install_voice_gate(plane, voice, studio_handle, *, seed=True) -> VoiceGate:
         ),
     }
 
+    # Wake and a transcript only accept what was already heard. Speech
+    # drives the speaker, and the Voice tab writes profiles and clips.
+    # The alpha seed names each one for the local owner.
+    declarations = {
+        VOICE_WAKE: declare((
+            "none",
+            "accepts that a heard sentence was addressed to Freya; it does not read the microphone or run a tool",
+        )),
+        VOICE_TURN: declare((
+            "none",
+            "one transcript, which is not stored here and is not a tool request",
+        )),
+        VOICE_SPEAK: declare(
+            ("device", "this machine's audio output"),
+            effect="consequential",
+        ),
+        VOICE_STUDIO: declare(
+            (
+                "filesystem",
+                "saved voice profiles, clips, and reference recordings on this machine",
+            ),
+            ("device", "playback while a voice is previewed"),
+            effect="consequential",
+        ),
+    }
+
     for name, (description, handler) in handlers.items():
         plane.capabilities.register(
             CapabilityDefinition(
@@ -168,6 +194,7 @@ def install_voice_gate(plane, voice, studio_handle, *, seed=True) -> VoiceGate:
                 provider=VOICE_PROVIDER,
                 handler=handler,
                 category="voice",
+                declaration=declarations[name],
             )
         )
 

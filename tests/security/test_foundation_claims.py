@@ -16,6 +16,7 @@ from freya.core.capabilities import (
     CapabilityBroker,
     CapabilityDefinition,
     CapabilityRegistry,
+    declare,
 )
 from freya.core.persistence import ControlStore
 from freya.core.policy import SqlitePolicyEngine
@@ -48,6 +49,7 @@ def _plane(tmp_path, rules=()):
             description="Reads a made-up fact for this test.",
             provider="test-provider",
             handler=handler,
+            declaration=declare(("none", "test fixture, no resource")),
         )
     )
     policy = SqlitePolicyEngine(store)
