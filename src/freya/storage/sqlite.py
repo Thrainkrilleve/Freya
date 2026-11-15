@@ -28,7 +28,8 @@ hex blob. That form is the key material itself. SQLCipher does not run
 PBKDF2 over it, so opening a store does not pay 256,000 iterations.
 The key id recorded in the key bundle is not mixed into this key. A
 later rotation can generate a new data key, run ``PRAGMA rekey`` (see
-``rekey``), and record the new key id. ``rekey`` is not built.
+``rekey``), and record the new key id. ``rekey`` copies the store,
+re-encrypts the copy, checks it, and only then replaces the original.
 
 Pinned on every open, after the key and before the first read, so a
 later SQLCipher default does not open these files differently:
@@ -639,19 +640,160 @@ def open_matching(source, path, **kwargs):
     return _stdlib.connect(path, **kwargs)
 
 
+def open_with(
+    path,
+    dek,
+    timeout=5.0,
+    isolation_level="",
+    check_same_thread=True,
+    *,
+    read_only=False,
+):
+    """
+    Open one existing store with this data key.
+
+    The process unlock is not consulted. A plaintext file is refused.
+    Rotation uses this for the key being installed and for the key
+    being replaced. It does not create a store.
+    """
+    file = Path(path)
+    name = file.name
+
+    if not file.is_file() or file.stat().st_size == 0:
+        raise StoreLocked(f"{name} could not be opened.")
+
+    if is_plaintext_sqlite(file):
+        raise StoreLocked(
+            f"{name} is not encrypted. Run python -m freya.storage.encrypt. "
+            "Nothing was opened."
+        )
+
+    connection = _driver.connect(
+        file,
+        timeout=timeout,
+        isolation_level=isolation_level,
+        check_same_thread=check_same_thread,
+    )
+
+    try:
+        _apply_key(connection, dek)
+        _verify_key(connection, name)
+    except BaseException:
+        connection.close()
+        raise
+
+    if not read_only:
+        connection.execute("PRAGMA secure_delete = ON")
+
+    return connection
+
+
+def _raw_pragma(statement: str, dek) -> str:
+    if statement not in ("key", "rekey"):
+        raise StoreError("The database key is not usable.")
+
+    if not isinstance(dek, (bytes, bytearray)) or len(dek) != 32:
+        raise StoreError("The database key is not usable.")
+
+    return 'PRAGMA ' + statement + ' = "x\'' + bytes(dek).hex() + '\'"'
+
+
+def rekey_copy(source, destination, old_dek, new_dek) -> None:
+    """
+    Write a copy of ``source`` re-encrypted with ``new_dek``.
+
+    ``source`` is checkpointed and left on ``old_dek``. The copy is
+    opened with the old raw key, then ``PRAGMA rekey`` installs the new
+    raw key. A fresh open with the new key must pass ``integrity_check``.
+    """
+    original = Path(source)
+    copy = Path(destination)
+    held = open_with(original, old_dek)
+
+    try:
+        held.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    finally:
+        held.close()
+
+    copy.parent.mkdir(parents=True, exist_ok=True)
+    wipe_file(copy)
+    wipe_sidecars(copy)
+
+    try:
+        data = original.read_bytes()
+        copy.write_bytes(data)
+        moved = open_with(copy, old_dek)
+
+        try:
+            try:
+                moved.execute(_raw_pragma("rekey", new_dek))
+                verdict = moved.execute("PRAGMA integrity_check").fetchone()[0]
+            except _driver.DatabaseError:
+                raise StoreError(
+                    f"The re-encrypted copy of {original.name} did not open."
+                ) from None
+        finally:
+            moved.close()
+
+        if verdict != "ok":
+            raise StoreError(f"The re-encrypted copy of {original.name} did not pass its check.")
+
+        checking = open_with(copy, new_dek)
+
+        try:
+            if checking.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
+                raise StoreError(
+                    f"The re-encrypted copy of {original.name} did not open."
+                )
+        finally:
+            checking.close()
+    except BaseException:
+        wipe_file(copy)
+        wipe_sidecars(copy)
+        raise
+
+
 def rekey(path, new_dek: bytes) -> None:
     """
-    Not built.
+    Re-encrypt one store with ``PRAGMA rekey``.
 
-    A later change will open ``path`` with the current raw key, run
-    ``PRAGMA rekey = "x'<new 64 hex chars>'"``, then record the new key
-    id in the database key bundle and drop the old wrap. Old backups
-    stay sealed under their own data key and do not need this rekey.
-    Calling this now changes nothing and opens nothing.
+    The file is copied, re-encrypted, checked, and only then replaces
+    the original. The process unlock is not changed: the caller binds
+    the new data key before opening the store again. A failed check
+    leaves the original bytes in place.
     """
-    del path, new_dek
+    old = require_unlocked()
+    file = Path(path)
+    sibling = file.with_name(file.name + ".rekey")
+    aside = file.with_name(file.name + ".before-rekey")
+    before = file.read_bytes()
 
-    raise StoreError(
-        "Key rotation is not built. The key id in the database key bundle "
-        "is what a later change will switch."
-    )
+    try:
+        rekey_copy(file, sibling, old.dek, new_dek)
+        wipe_file(aside)
+        os.replace(file, aside)
+
+        try:
+            os.replace(sibling, file)
+        except OSError:
+            if not file.exists() and aside.is_file():
+                os.replace(aside, file)
+
+            raise
+    except BaseException as exc:
+        wipe_file(sibling)
+        wipe_sidecars(sibling)
+
+        if file.is_file() and file.read_bytes() != before and aside.is_file():
+            os.replace(aside, file)
+
+        if isinstance(exc, (StoreError, StoreLocked)):
+            raise
+
+        raise StoreError(
+            f"{file.name} was not re-encrypted. The original was left in place."
+        ) from None
+
+    wipe_file(aside)
+    wipe_sidecars(aside)
+    wipe_sidecars(file)

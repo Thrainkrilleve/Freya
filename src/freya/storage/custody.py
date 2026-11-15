@@ -249,6 +249,19 @@ def seal_under_stretch(
     return dek_body, sealed
 
 
+def wrap_under_stretch(passphrase: str, payload: bytes, *, key_id: bytes, purpose: bytes) -> bytes:
+    """
+    One AES-256-GCM wrap of ``payload``.
+
+    The result is a salt, the stretch parameters, and ciphertext. The
+    passphrase is not in it.
+    """
+    salt = os.urandom(ARGON2_SALT_LEN)
+    kek = derive_passphrase_kek(passphrase, salt, PASSPHRASE_PARAMS)
+
+    return _stretch_wrap(kek, payload, key_id=key_id, purpose=purpose, salt=salt)
+
+
 def open_stretch_wrap(passphrase: str, body: bytes, *, key_id: bytes, purpose: bytes) -> bytes:
     """Open one passphrase wrap. The parameters in the body are allowlisted first."""
     header = ARGON2_SALT_LEN + 4 + 4 + 1

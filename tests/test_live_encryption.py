@@ -31,6 +31,7 @@ from freya.storage.sqlite import (
     StoreError,
     connect,
     is_plaintext_sqlite,
+    open_with,
     rekey,
 )
 
@@ -300,16 +301,32 @@ def test_migration_is_one_way_idempotent_and_a_failure_leaves_the_original(tmp_p
     assert path.read_bytes() == encrypted
 
 
-def test_rekey_is_not_built(tmp_path):
+def test_rekey_replaces_the_file_after_it_checks(tmp_path):
     path = tmp_path / "freya_control.db"
-    ControlStore(path).close()
-    before = path.read_bytes()
+    connection = connect(path)
+    connection.execute("CREATE TABLE notes (body TEXT)")
+    connection.execute("INSERT INTO notes (body) VALUES (?)", (MARKER,))
+    connection.commit()
+    connection.close()
+    old = bytes(require_unlocked().dek)
+    new_dek = os.urandom(32)
+    rekey(path, new_dek)
+    assert not path.read_bytes().startswith(SQLITE_HEADER)
+    assert MARKER.encode("utf-8") not in path.read_bytes()
+    assert not path.with_name(path.name + ".rekey").exists()
+    assert not path.with_name(path.name + ".before-rekey").exists()
 
-    with pytest.raises(StoreError, match="not built"):
-        rekey(path, os.urandom(32))
+    with pytest.raises(StoreLocked):
+        open_with(path, old)
 
-    assert path.read_bytes() == before
-    assert require_unlocked().key_id == current().key_id
+    bind_memory_key(new_dek, os.urandom(16))
+    opened = connect(path)
+
+    try:
+        assert opened.execute("PRAGMA integrity_check").fetchone()[0] == "ok"
+        assert opened.execute("SELECT body FROM notes").fetchone()[0] == MARKER
+    finally:
+        opened.close()
 
 
 def test_plaintext_is_refused_without_the_migration(tmp_path):

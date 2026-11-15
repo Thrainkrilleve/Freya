@@ -90,7 +90,9 @@ Rules for the spec:
   the same KeyCustody wraps) and open only through `storage/sqlite.py`. No
   keystore and no passphrase refuses; a plaintext file refuses until
   `python -m freya.storage.encrypt`, which takes a verified backup first.
-  Key rotation is not built (`sqlite.rekey` refuses; the key id is recorded).
+  Passphrase, recovery-key, and data-key rotation, and revocation, are
+  `python -m freya.storage.keys` (the stretch stays 256 MiB, time 3,
+  parallelism 4). A data-key change takes a verified backup first.
   `src/freya/storage/restore.py`
   puts a dated backup back and does not replace a newer deletion ledger with an older
   copy. `devtools/restore_drill.py` times that round trip on encrypted scratch data. Freya runs it as she closes, beside the rest of
