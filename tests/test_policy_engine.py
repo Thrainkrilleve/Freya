@@ -1,4 +1,4 @@
-import sqlite3
+from freya.storage.sqlite import IntegrityError as StoreIntegrityError
 
 import pytest
 
@@ -181,7 +181,7 @@ def test_add_rule_validates_input(policy, subject, capability, effect, reason):
 def test_duplicate_rule_is_rejected_without_bumping_revision(policy):
     policy.add_rule("owner", "system.info", "allow", "x")
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(StoreIntegrityError):
         policy.add_rule("owner", "system.info", "allow", "again")
 
     assert policy.state() == (1, 1)

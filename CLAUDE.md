@@ -86,7 +86,12 @@ Rules for the spec:
   keystore, and by a recovery key that is shown once. Linux uses Secret Service
   or that passphrase. The kernel keyring is only used when
   `FREYA_BACKUP_KERNEL_KEYRING=1`, and it does not survive a reboot. A backup made before encryption restores only with the explicit
-  migration flag. `src/freya/storage/restore.py`
+  migration flag. Live databases are SQLCipher 4 (`sqlcipher3`, raw key from
+  the same KeyCustody wraps) and open only through `storage/sqlite.py`. No
+  keystore and no passphrase refuses; a plaintext file refuses until
+  `python -m freya.storage.encrypt`, which takes a verified backup first.
+  Key rotation is not built (`sqlite.rekey` refuses; the key id is recorded).
+  `src/freya/storage/restore.py`
   puts a dated backup back and does not replace a newer deletion ledger with an older
   copy. `devtools/restore_drill.py` times that round trip on encrypted scratch data. Freya runs it as she closes, beside the rest of
   closing and for at most 20 seconds, unless one was made in the last hour

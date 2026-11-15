@@ -9,9 +9,11 @@ identifier. A database that is already protected is left alone. The
 ledger stays outside the data folder.
 """
 
-import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
+
+from freya.storage import sqlite as sqlite3
+from freya.storage.dbkey import StoreLocked
 
 from freya.memory import memory_manager
 from freya.memory.conversations import ConversationStore
@@ -28,10 +30,10 @@ def _protected_file(database: Path) -> bool:
     if not database.is_file():
         return False
 
-    connection = sqlite3.connect(
-        f"file:{database.resolve().as_posix()}?mode=ro",
-        uri=True,
-    )
+    try:
+        connection = sqlite3.connect(database, read_only=True)
+    except StoreLocked as error:
+        raise StorageQuarantined(str(error)) from error
 
     try:
         return is_protected(connection)

@@ -1,4 +1,5 @@
 import re
+import sys
 import time
 import urllib.request
 import threading
@@ -12,7 +13,9 @@ from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
 from freya.control_plane import build_local_control_plane
 from freya.delegation.service import build_cloud_delegation, build_turn_delegation
+from freya.paths import data_dir
 from freya.storage.backup import back_up_on_close
+from freya.storage.dbkey import StoreLocked, ensure_unlocked
 from freya.config import OPEN_WINDOW, MODEL
 from freya.config import COMFYUI_AT_START
 from freya.config import SELF_CHECK_AT_START
@@ -560,6 +563,19 @@ def main(window_only=False):
     console_output.install()
     quit_requested = threading.Event()
     SHUTTING_DOWN.clear()
+
+    try:
+        # The recovery key is not printed here. stdout is copied into the
+        # log and the window. The startup warning names the command that
+        # shows it once, on a terminal.
+        ensure_unlocked(
+            data_dir(),
+            interactive=sys.stdin.isatty() and not window_only,
+        )
+    except StoreLocked as exc:
+        print(f"Freya cannot open her databases: {exc}")
+        return
+
     control_plane = build_local_control_plane()
     for message in control_plane.startup_messages():
         print(message)

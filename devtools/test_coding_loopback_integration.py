@@ -28,6 +28,7 @@ from freya.core.capabilities import CapabilityBroker, CapabilityRegistry
 from freya.core.persistence import ControlStore
 from freya.core.policy import SqlitePolicyEngine
 from freya.core.providers import ProviderRegistry
+from freya.storage.dbkey import bind_memory_key, clear_unlock
 
 PATCH = "--- a/example.py\n+++ b/example.py\n@@ -1 +1 @@\n-answer = 1\n+answer = 2\n"
 
@@ -42,6 +43,9 @@ class CodingLoopbackIntegrationTests(unittest.TestCase):
         self.repo.mkdir()
         (self.repo / "example.py").write_bytes(b"answer = 1\n")
 
+        # A throwaway key in this process. The test writes no key file.
+        bind_memory_key()
+        self.addCleanup(clear_unlock)
         self.store = ControlStore(self.root / "control.db")
         self.addCleanup(self.store.close)
         self.policy = SqlitePolicyEngine(self.store)

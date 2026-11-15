@@ -59,6 +59,7 @@ from freya.storage.crypto import (
     NONCE_LEN,
     TAG_LEN,
     BackupRefused,
+    BundleFile,
     Wrap,
     unwrap_with_kek,
     wrap_with_kek,
@@ -218,7 +219,7 @@ def derive_passphrase_kek(passphrase: str, salt: bytes, params: Tuple[int, int, 
     )
 
 
-def _passphrase_body(kek: bytes, payload: bytes, *, key_id: bytes, purpose: bytes, salt: bytes) -> bytes:
+def _stretch_wrap(kek: bytes, payload: bytes, *, key_id: bytes, purpose: bytes, salt: bytes) -> bytes:
     memory, time_cost, parallelism = PASSPHRASE_PARAMS
     wrapped = wrap_with_kek(
         kek, payload, passphrase_associated(key_id, purpose, salt, PASSPHRASE_PARAMS),
@@ -227,27 +228,28 @@ def _passphrase_body(kek: bytes, payload: bytes, *, key_id: bytes, purpose: byte
     return salt + struct.pack(">IIB", memory, time_cost, parallelism) + wrapped
 
 
-def seal_with_passphrase(
+def seal_under_stretch(
     passphrase: str, dek: bytes, recovery_raw: bytes, *, key_id: bytes,
 ) -> Tuple[bytes, bytes]:
     """
     One stretch, two wraps: the data key, and the recovery key that is
-    waiting to be shown. The passphrase is not in either body.
+    waiting to be shown. Neither body contains the passphrase. Each body
+    is a salt, the stretch parameters, and an AES-256-GCM ciphertext.
     """
     if len(dek) != KEY_LEN or len(recovery_raw) != KEY_LEN:
         raise BackupRefused("The backup key is not usable.")
 
     salt = os.urandom(ARGON2_SALT_LEN)
     kek = derive_passphrase_kek(passphrase, salt, PASSPHRASE_PARAMS)
-    dek_body = _passphrase_body(kek, dek, key_id=key_id, purpose=PURPOSE_DEK, salt=salt)
-    sealed = _passphrase_body(
+    dek_body = _stretch_wrap(kek, dek, key_id=key_id, purpose=PURPOSE_DEK, salt=salt)
+    sealed = _stretch_wrap(
         kek, recovery_raw, key_id=key_id, purpose=PURPOSE_RECOVERY, salt=salt,
     )
 
     return dek_body, sealed
 
 
-def open_passphrase_body(passphrase: str, body: bytes, *, key_id: bytes, purpose: bytes) -> bytes:
+def open_stretch_wrap(passphrase: str, body: bytes, *, key_id: bytes, purpose: bytes) -> bytes:
     """Open one passphrase wrap. The parameters in the body are allowlisted first."""
     header = ARGON2_SALT_LEN + 4 + 4 + 1
     expect = header + NONCE_LEN + KEY_LEN + TAG_LEN
@@ -316,15 +318,18 @@ def parse_recovery_key(text: str) -> bytes:
     return raw
 
 
-def prompt_passphrase(reader=None) -> str:
+def prompt_passphrase(reader=None, label="Backup passphrase") -> str:
     """
     Ask twice on the machine the owner is at. The passphrase is not
     taken from the environment and not from a command argument.
+
+    ``label`` is the first prompt. The default is the backup prompt,
+    so an existing caller sees the same words.
     """
     import getpass
 
     ask = reader or getpass.getpass
-    first = ask("Backup passphrase: ")
+    first = ask(f"{label}: ")
     second = ask("Repeat the passphrase: ")
 
     if not isinstance(first, str) or first != second or first.strip() == "":
@@ -1278,6 +1283,101 @@ def wrap_for(keys_wraps: Sequence[Wrap], method: int) -> Wrap:
         raise BackupRefused("The backup key file is not usable.")
 
     return found[0]
+
+
+def _one_wrap(wraps: Sequence[Wrap], method: int, missing: str) -> Wrap:
+    found = [item for item in wraps if item.method == method]
+
+    if not found:
+        raise BackupRefused(missing)
+
+    if len(found) != 1:
+        raise BackupRefused("The key file is not usable.")
+
+    return found[0]
+
+
+def new_data_key(custody, passphrase):
+    """
+    A new data key, its wraps, and the recovery key text.
+
+    The text is returned to the caller and is not written. A sealed
+    copy is kept on the bundle until the caller acknowledges it. The
+    same wraps cover a backup data key and the live database key.
+    There is no second wrapping scheme.
+    """
+    if passphrase is None and not custody.available():
+        raise BackupRefused(
+            "No keystore is available. A passphrase is required. Nothing was written."
+        )
+
+    key_id = os.urandom(KEY_ID_LEN)
+    dek = os.urandom(KEY_LEN)
+    recovery_raw = os.urandom(KEY_LEN)
+    wraps = []
+    seal = None
+
+    if custody.available():
+        wraps.append(Wrap(
+            METHOD_OS,
+            custody.backend_id,
+            custody.wrap(dek, key_id=key_id, purpose=PURPOSE_DEK),
+        ))
+        seal = Wrap(
+            METHOD_OS,
+            custody.backend_id,
+            custody.wrap(recovery_raw, key_id=key_id, purpose=PURPOSE_RECOVERY),
+        )
+
+    if passphrase is not None or seal is None:
+        if passphrase is None:
+            raise BackupRefused(
+                "No keystore is available. A passphrase is required. Nothing was written."
+            )
+
+        dek_body, sealed_recovery = seal_under_stretch(
+            passphrase, dek, recovery_raw, key_id=key_id,
+        )
+        wraps.append(Wrap(METHOD_PASSPHRASE, 0, dek_body))
+
+        if seal is None:
+            seal = Wrap(METHOD_PASSPHRASE, 0, sealed_recovery)
+
+    wraps.append(Wrap(
+        METHOD_RECOVERY, 0, make_recovery_body(recovery_raw, dek, key_id),
+    ))
+    bundle = BundleFile(key_id, False, wraps, seal)
+
+    return dek, bundle, format_recovery_key(recovery_raw)
+
+
+def unwrap_data_key(
+    bundle,
+    custody,
+    passphrase=None,
+    recovery_key=None,
+    *,
+    missing_recovery="This backup has no recovery wrap.",
+    missing_passphrase="This backup has no passphrase wrap. Use the recovery key.",
+) -> bytes:
+    """
+    Open one saved data key. The caller names one method. A failure
+    does not try the next.
+    """
+    if recovery_key is not None:
+        raw = parse_recovery_key(recovery_key)
+        wrap = _one_wrap(bundle.wraps, METHOD_RECOVERY, missing_recovery)
+
+        return open_recovery_body(raw, wrap.body, bundle.key_id)
+
+    if passphrase is not None:
+        wrap = _one_wrap(bundle.wraps, METHOD_PASSPHRASE, missing_passphrase)
+
+        return open_stretch_wrap(
+            passphrase, wrap.body, key_id=bundle.key_id, purpose=PURPOSE_DEK,
+        )
+
+    return unwrap_os(bundle.wraps, custody, bundle.key_id, purpose=PURPOSE_DEK)
 
 
 def unwrap_os(wraps: Sequence[Wrap], custody, key_id: bytes, *, purpose: bytes) -> bytes:

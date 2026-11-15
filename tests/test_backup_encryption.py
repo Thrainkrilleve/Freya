@@ -100,7 +100,12 @@ def test_a_round_trip_is_not_sqlite_or_json_without_the_key(tmp_path, stored):
     assert (restored / "freya_settings.json").read_text(encoding="utf-8") == (
         '{"voice_volume": 80}'
     )
-    copy = sqlite3.connect(restored / "freya_memory.db")
+    stored_db = (restored / "freya_memory.db").read_bytes()
+    assert not stored_db.startswith(b"SQLite format 3")
+    assert b"made-up note" not in stored_db
+    from freya.storage.sqlite import connect as open_store
+
+    copy = open_store(restored / "freya_memory.db")
 
     try:
         assert copy.execute("SELECT body FROM notes").fetchone()[0] == "made-up note"
@@ -234,7 +239,17 @@ def test_a_passphrase_opens_the_backup_and_is_not_stored(tmp_path, stored, monke
         custody=NoKeyStore(),
         passphrase=PASSPHRASE,
     )
-    assert b"made-up note" in (restored / "freya_memory.db").read_bytes()
+    restored_db = (restored / "freya_memory.db").read_bytes()
+    assert not restored_db.startswith(b"SQLite format 3")
+    assert b"made-up note" not in restored_db
+    from freya.storage.sqlite import connect as open_store
+
+    copy = open_store(restored / "freya_memory.db")
+
+    try:
+        assert copy.execute("SELECT body FROM notes").fetchone()[0] == "made-up note"
+    finally:
+        copy.close()
 
 
 def test_no_keystore_and_no_passphrase_writes_nothing(tmp_path, stored):

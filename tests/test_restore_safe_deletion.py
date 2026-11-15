@@ -3,6 +3,13 @@ from types import SimpleNamespace
 
 import pytest
 
+from freya.storage.sqlite import (
+    Error as StoreError,
+    OperationalError as StoreOperationalError,
+    ProgrammingError as StoreProgrammingError,
+    connect as open_store,
+)
+
 from freya.control_plane import build_local_control_plane
 from freya.core.assistant import FreyaAssistant
 from freya.memory import deletion_ledger, memory_manager
@@ -66,7 +73,7 @@ class Home:
         self.database.write_bytes(snapshot)
 
     def tombstones(self) -> list:
-        connection = sqlite3.connect(self.ledger)
+        connection = open_store(self.ledger)
 
         try:
             return connection.execute(
@@ -189,13 +196,13 @@ def test_protecting_backs_up_first_and_gives_every_row_an_identifier(home):
     store_id = home.protect()
 
     # The backup is the database as it was, and is sound.
-    backup = sqlite3.connect(home.backup)
+    backup = open_store(home.backup)
     assert backup.execute("PRAGMA integrity_check").fetchall() == [("ok",)]
     assert stored_text(backup) == before
     assert "artifact_id" not in columns(backup, "memories")
     backup.close()
 
-    ledger = sqlite3.connect(home.ledger)
+    ledger = open_store(home.ledger)
     assert ledger.execute("SELECT key, value FROM ledger_meta").fetchall() == [
         ("store_id", store_id)
     ]
@@ -286,21 +293,21 @@ def test_a_backup_that_does_not_match_stops_protection(unprotected, monkeypatch)
 
 def test_a_failure_after_the_backup_undoes_every_change(unprotected, monkeypatch):
     home, before = unprotected
-    connection = sqlite3.connect(home.database)
+    connection = open_store(home.database)
     was = schema(connection), stored_text(connection)
     connection.close()
     add = deletion_ledger._add_identities
 
     def add_then_fail(source, store_id):
         add(source, store_id)
-        raise sqlite3.OperationalError("disk full")
+        raise StoreOperationalError("disk full")
 
     monkeypatch.setattr(deletion_ledger, "_add_identities", add_then_fail)
 
     with pytest.raises(ProtectionSetupError, match="disk full"):
         home.protect()
 
-    connection = sqlite3.connect(home.database)
+    connection = open_store(home.database)
     assert (schema(connection), stored_text(connection)) == was
     connection.close()
 
@@ -338,7 +345,7 @@ def test_paths_that_overlap_are_refused(unprotected, tmp_path, ledger, backup):
 
 
 def test_a_database_without_freyas_tables_cannot_be_protected(home):
-    connection = sqlite3.connect(home.database)
+    connection = open_store(home.database)
     connection.execute("CREATE TABLE memories (id INTEGER PRIMARY KEY, content TEXT)")
     connection.commit()
     connection.close()
@@ -411,7 +418,7 @@ def test_a_row_cannot_bring_or_change_its_identifier(protected, table):
     )
 
     for claimed in (taken, "0" * 32):
-        with pytest.raises(sqlite3.Error):
+        with pytest.raises(StoreError):
             # A copy of an existing row, claiming an identifier.
             connection.execute(
                 f"INSERT INTO {table} ({names}) "
@@ -421,7 +428,7 @@ def test_a_row_cannot_bring_or_change_its_identifier(protected, table):
 
         connection.rollback()
 
-    with pytest.raises(sqlite3.Error):
+    with pytest.raises(StoreError):
         connection.execute(f"UPDATE {table} SET artifact_id = ?", ("f" * 32,))
 
     connection.rollback()
@@ -445,7 +452,7 @@ def test_the_ledger_holds_no_words_of_what_was_deleted(protected):
     assert applied(memory.connection) == 5
     protected.close()
 
-    ledger = sqlite3.connect(protected.ledger)
+    ledger = open_store(protected.ledger)
     assert {row[1] for row in schema(ledger) if row[0] == "table"} == {
         "ledger_meta", "tombstone", "sqlite_sequence",
     }
@@ -461,7 +468,7 @@ def test_the_ledger_holds_no_words_of_what_was_deleted(protected):
 
     # Tombstones are only ever added.
     for statement in ("DELETE FROM tombstone", "UPDATE tombstone SET kind = 'turn'"):
-        with pytest.raises(sqlite3.Error):
+        with pytest.raises(StoreError):
             ledger.execute(statement)
         ledger.rollback()
 
@@ -505,7 +512,7 @@ def test_a_forgotten_memory_stays_forgotten_when_an_older_copy_is_restored(prote
 
     # The copy holds the edited one as it was before the edit.
     protected.restore(older)
-    restored = sqlite3.connect(protected.database)
+    restored = open_store(protected.database)
     text = stored_text(restored)
     assert "2468" in text and "heron statue" in text
     restored.close()
@@ -602,7 +609,7 @@ def test_deleted_conversation_text_stays_deleted_when_an_older_copy_is_restored(
     check(memory, store)
 
     protected.restore(older)
-    restored = sqlite3.connect(protected.database)
+    restored = open_store(protected.database)
     assert SECRET in stored_text(restored)
     restored.close()
 
@@ -717,7 +724,7 @@ def test_deletion_does_not_commit_an_unrelated_open_transaction(protected):
         "UPDATE memories SET content = 'Uncommitted reminder.' WHERE id = ?", (identifier,)
     )
 
-    with pytest.raises(sqlite3.OperationalError, match="current memory transaction"):
+    with pytest.raises(StoreOperationalError, match="current memory transaction"):
         memory.delete_memory(identifier)
 
     assert memory.connection.in_transaction
@@ -747,7 +754,7 @@ def test_an_uncertain_ledger_commit_quarantines_until_reopen(protected, persiste
     with pytest.raises(StorageQuarantined, match="commit is uncertain"):
         memory.delete_memory(identifier)
     assert memory.ledger.quarantined
-    with pytest.raises(sqlite3.ProgrammingError):
+    with pytest.raises(StoreProgrammingError):
         memory.get_memory(identifier)
 
     protected.close()
@@ -794,7 +801,7 @@ def test_a_failure_before_the_ledger_has_it_leaves_everything_as_it_was(protecte
         lambda: store.delete_conversation(conversation),
         store.delete_all,
     ):
-        with pytest.raises(sqlite3.Error):
+        with pytest.raises(StoreError):
             delete()
 
     # Nothing was recorded, nothing was removed, and she carries on.
@@ -831,7 +838,7 @@ def test_a_failure_after_the_ledger_has_it_closes_the_database_until_it_is_repai
     assert len(protected.tombstones()) == (1 if kind == "memory" else 3)
 
     for read in (memory.get_all_memories, lambda: memory.get_memory(forgotten), store.recent):
-        with pytest.raises(sqlite3.ProgrammingError):
+        with pytest.raises(StoreProgrammingError):
             read()
 
     assert store.search(SECRET) == []
@@ -841,7 +848,7 @@ def test_a_failure_after_the_ledger_has_it_closes_the_database_until_it_is_repai
 
     # It was not removed: the file still has it, until the next open.
     protected.close()
-    left = sqlite3.connect(protected.database)
+    left = open_store(protected.database)
     gone = "31-41-59" if kind == "memory" else SECRET
     assert gone in stored_text(left)
     left.close()
@@ -894,7 +901,7 @@ def another_stores_ledger(at_rest, tmp_path) -> bytes:
 
 
 def drop_a_guard(home) -> None:
-    connection = sqlite3.connect(home.database)
+    connection = open_store(home.database)
     connection.execute("DROP TRIGGER memories_artifact_id_assign")
     connection.commit()
     connection.close()

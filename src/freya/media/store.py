@@ -1,13 +1,14 @@
 import json
 import math
 import re
-import sqlite3
 import threading
 import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable, List, Optional
+
+from freya.storage import sqlite as sqlite3
 
 
 SCHEMA_VERSION = 1

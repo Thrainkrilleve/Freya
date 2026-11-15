@@ -1,10 +1,10 @@
 import logging
-import sqlite3
 import threading
 from contextlib import contextmanager
 from pathlib import Path
 
 from freya.paths import data_dir
+from freya.storage import sqlite as sqlite3
 
 
 logger = logging.getLogger(__name__)

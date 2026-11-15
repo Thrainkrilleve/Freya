@@ -38,7 +38,7 @@ from freya.storage.custody import (
     derive_passphrase_kek,
     format_recovery_key,
     kernel_keyring_opted_in,
-    open_passphrase_body,
+    open_stretch_wrap,
     params_acceptable,
     parse_recovery_key,
     platform_backend,
@@ -217,7 +217,7 @@ def test_unwrap_rejects_a_new_wrap_below_the_argon2_floor():
         )
 
         with pytest.raises(BackupRefused, match="setup"):
-            open_passphrase_body(
+            open_stretch_wrap(
                 "a made-up passphrase",
                 body,
                 key_id=os.urandom(16),

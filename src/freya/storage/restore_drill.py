@@ -18,7 +18,6 @@ import argparse
 import json
 import secrets
 import shutil
-import sqlite3
 import sys
 import tempfile
 import time
@@ -45,6 +44,8 @@ from freya.storage.backup import (
     read_manifest,
 )
 from freya.storage.custody import NoKeyStore, parse_recovery_key
+from freya.storage.dbkey import ensure_unlocked
+from freya.storage import sqlite as sqlite3
 from freya.storage.restore import restore
 from freya.tasks.lifecycle import TASK_MIGRATIONS
 
@@ -222,10 +223,7 @@ def _seed(data: Path, environ) -> None:
 
 
 def _open_read_only(path: Path):
-    return sqlite3.connect(
-        f"file:{path.resolve().as_posix()}?mode=ro",
-        uri=True,
-    )
+    return sqlite3.connect(path, read_only=True)
 
 
 def _integrity(path: Path) -> Optional[str]:
@@ -380,6 +378,16 @@ def run_drill(root, now: Optional[datetime] = None, environ=None) -> DrillResult
         ) from exc
 
     moment = now or WHEN
+    # A throwaway live key, outside the data folder. NoKeyStore so the
+    # drill never asks the machine's keystore. A process that already
+    # holds an unlock (the tests) keeps that one.
+    live_passphrase = secrets.token_urlsafe(24)
+    ensure_unlocked(
+        data,
+        custody=NoKeyStore(),
+        passphrase=live_passphrase,
+        environ=environ,
+    )
     saved = (memory_manager.DATA_DIR, memory_manager.DATABASE_PATH)
     memory_manager.DATA_DIR = data
     memory_manager.DATABASE_PATH = data / "freya_memory.db"
@@ -438,6 +446,26 @@ def run_drill(root, now: Optional[datetime] = None, environ=None) -> DrillResult
 
         if not _memory_has_fact(data / "freya_memory.db"):
             problems.append("The scratch memory row did not survive the restore.")
+
+        marker = SCRATCH_FACT.encode("utf-8")
+
+        for name, _table, _query in ROW_QUERIES:
+            for suffix in ("", "-wal", "-shm", "-journal"):
+                side = Path(str(data / name) + suffix)
+
+                if not side.is_file():
+                    continue
+
+                blob = side.read_bytes()
+
+                if blob.startswith(b"SQLite format 3") or marker in blob:
+                    problems.append(f"{name}{suffix} is readable without the key.")
+
+        if ledger.is_file():
+            ledger_blob = ledger.read_bytes()
+
+            if ledger_blob.startswith(b"SQLite format 3") or marker in ledger_blob:
+                problems.append("The deletion ledger is readable without the key.")
 
         if ledger.is_file() and data.is_dir():
             after = _counts(data, ledger)
