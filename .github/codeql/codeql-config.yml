@@ -1,10 +1,19 @@
-# Loaded by .github/workflows/codeql-security.yml (advanced setup).
-# GitHub's default setup does not read this file on its own. The owner sets
-# the repository property github-codeql-config-file to this path, or switches
-# code scanning to advanced setup, for the exclusion to apply there.
+# Loaded by .github/workflows/codeql-security.yml (advanced setup, Python).
+# GitHub's default setup generates its own workflow and does not read this
+# file. This repository is owned by a user, so the github-codeql-config-file
+# property cannot be set either. The C# exclusion below is what an analysis
+# that loads this file will honor.
 name: "Freya CodeQL config"
 
 # Checksummed third-party browser libraries. three.js calls Math.random for
 # UUIDs and numeric helpers; those calls are not secrets.
+#
+# Unreal Build Tool scripts. They are C# because Unreal compiles them inside
+# the engine. There is no project or solution, so a build-mode none scan
+# cannot resolve UnrealBuildTool (call targets and expression types stay
+# unresolved). The C++ sources and Python scripts beside them stay scanned.
 paths-ignore:
   - "src/freya/gateway/static/vendor/**"
+  - "clients/unreal/FreyaUnrealProbe/Source/FreyaUnrealProbe/FreyaUnrealProbe.Build.cs"
+  - "clients/unreal/FreyaUnrealProbe/Source/FreyaUnrealProbe.Target.cs"
+  - "clients/unreal/FreyaUnrealProbe/Source/FreyaUnrealProbeEditor.Target.cs"
