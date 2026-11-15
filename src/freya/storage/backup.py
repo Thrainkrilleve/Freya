@@ -56,7 +56,7 @@ from freya.storage.custody import (
     default_custody,
     format_recovery_key,
     new_data_key,
-    open_passphrase_body,
+    open_stretch_wrap,
     open_recovery_body,
     prompt_passphrase,
     unwrap_data_key,
@@ -696,7 +696,7 @@ def reveal_recovery_key(
         if passphrase is None:
             raise BackupRefused("A passphrase is required.")
 
-        raw = open_passphrase_body(
+        raw = open_stretch_wrap(
             passphrase, seal_wrap.body, key_id=bundle.key_id, purpose=PURPOSE_RECOVERY,
         )
     else:
@@ -793,7 +793,7 @@ def unlock_dek(folder, *, custody=None, passphrase=None, recovery_key=None):
             METHOD_PASSPHRASE,
             "This backup has no passphrase wrap. Use the recovery key.",
         )
-        dek = open_passphrase_body(
+        dek = open_stretch_wrap(
             passphrase, wrap.body, key_id=keys.key_id, purpose=PURPOSE_DEK,
         )
     else:

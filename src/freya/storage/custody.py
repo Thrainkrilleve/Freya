@@ -219,7 +219,7 @@ def derive_passphrase_kek(passphrase: str, salt: bytes, params: Tuple[int, int, 
     )
 
 
-def _passphrase_body(kek: bytes, payload: bytes, *, key_id: bytes, purpose: bytes, salt: bytes) -> bytes:
+def _stretch_wrap(kek: bytes, payload: bytes, *, key_id: bytes, purpose: bytes, salt: bytes) -> bytes:
     memory, time_cost, parallelism = PASSPHRASE_PARAMS
     wrapped = wrap_with_kek(
         kek, payload, passphrase_associated(key_id, purpose, salt, PASSPHRASE_PARAMS),
@@ -228,27 +228,28 @@ def _passphrase_body(kek: bytes, payload: bytes, *, key_id: bytes, purpose: byte
     return salt + struct.pack(">IIB", memory, time_cost, parallelism) + wrapped
 
 
-def seal_with_passphrase(
+def seal_under_stretch(
     passphrase: str, dek: bytes, recovery_raw: bytes, *, key_id: bytes,
 ) -> Tuple[bytes, bytes]:
     """
     One stretch, two wraps: the data key, and the recovery key that is
-    waiting to be shown. The passphrase is not in either body.
+    waiting to be shown. Neither body contains the passphrase. Each body
+    is a salt, the stretch parameters, and an AES-256-GCM ciphertext.
     """
     if len(dek) != KEY_LEN or len(recovery_raw) != KEY_LEN:
         raise BackupRefused("The backup key is not usable.")
 
     salt = os.urandom(ARGON2_SALT_LEN)
     kek = derive_passphrase_kek(passphrase, salt, PASSPHRASE_PARAMS)
-    dek_body = _passphrase_body(kek, dek, key_id=key_id, purpose=PURPOSE_DEK, salt=salt)
-    sealed = _passphrase_body(
+    dek_body = _stretch_wrap(kek, dek, key_id=key_id, purpose=PURPOSE_DEK, salt=salt)
+    sealed = _stretch_wrap(
         kek, recovery_raw, key_id=key_id, purpose=PURPOSE_RECOVERY, salt=salt,
     )
 
     return dek_body, sealed
 
 
-def open_passphrase_body(passphrase: str, body: bytes, *, key_id: bytes, purpose: bytes) -> bytes:
+def open_stretch_wrap(passphrase: str, body: bytes, *, key_id: bytes, purpose: bytes) -> bytes:
     """Open one passphrase wrap. The parameters in the body are allowlisted first."""
     header = ARGON2_SALT_LEN + 4 + 4 + 1
     expect = header + NONCE_LEN + KEY_LEN + TAG_LEN
@@ -1334,7 +1335,7 @@ def new_data_key(custody, passphrase):
                 "No keystore is available. A passphrase is required. Nothing was written."
             )
 
-        dek_body, sealed_recovery = seal_with_passphrase(
+        dek_body, sealed_recovery = seal_under_stretch(
             passphrase, dek, recovery_raw, key_id=key_id,
         )
         wraps.append(Wrap(METHOD_PASSPHRASE, 0, dek_body))
@@ -1372,7 +1373,7 @@ def unwrap_data_key(
     if passphrase is not None:
         wrap = _one_wrap(bundle.wraps, METHOD_PASSPHRASE, missing_passphrase)
 
-        return open_passphrase_body(
+        return open_stretch_wrap(
             passphrase, wrap.body, key_id=bundle.key_id, purpose=PURPOSE_DEK,
         )
 

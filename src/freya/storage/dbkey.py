@@ -209,7 +209,7 @@ def reveal_recovery_key(
         METHOD_PASSPHRASE,
         PURPOSE_RECOVERY,
         format_recovery_key,
-        open_passphrase_body,
+        open_stretch_wrap,
         unwrap_os,
     )
 
@@ -236,7 +236,7 @@ def reveal_recovery_key(
             if passphrase is None:
                 raise StoreLocked("A passphrase is required.")
 
-            raw = open_passphrase_body(
+            raw = open_stretch_wrap(
                 passphrase,
                 seal_wrap.body,
                 key_id=bundle.key_id,
