@@ -102,10 +102,17 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   key, so a later rotation does not need the old page key to read an old
   backup. The scratch drill checks integrity, row counts, the audit
   chain, and the ledger rule on those encrypted stores.
-- Key rotation and revocation are not built. The key id is recorded in
-  the database key bundle. `sqlite.rekey` refuses and changes nothing. A
-  later change would open each store with the current raw key, run
-  `PRAGMA rekey`, and record the new key id. Old backups stay sealed
+- Passphrase, recovery-key, and data-key rotation, and revocation, are
+  `python -m freya.storage.keys`. A passphrase change re-wraps the same
+  data key (argon2id, 256 MiB, time 3, parallelism 4) and does not
+  rewrite a database. A recovery-key change mints a new recovery key,
+  shows it once, and drops the old wrap. A data-key change takes a
+  verified backup first, re-encrypts each live store with `PRAGMA rekey`
+  on a copy, and only then replaces the file. A journal outside the data
+  directory records the step, so a crash can be resumed or rolled back.
+  Revocation removes one wrap and refuses to remove the last unlock.
+  The old data key is wiped from the process after a data-key change
+  commits. The key id is recorded in the bundle. Old backups stay sealed
   under their own data key.
 
 ## Validation owed
@@ -166,7 +173,17 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   0.092 s restoring and 0.028 s checking. The gap from that backup to
   the end of the check was 0.132 s. This is not a measurement of the
   owner's databases, and it is not an acceptance result. It does not
-  replace the figures above. Key rotation and revocation remain open.
+  replace the figures above.
+- Key rotation and revocation. `tests/test_key_rotation.py` covers a
+  passphrase change that leaves the database bytes in place, a wrong
+  passphrase that writes nothing, a recovery-key change that invalidates
+  the old key, a data-key change across the live stores and the deletion
+  ledger, a crash during the copy and a crash during the swap (resume
+  and roll back), a refusal to remove the last unlock, an atomic key-file
+  replace, and that a passphrase, a recovery key, or a data key is absent
+  from the status text, the journal, and the exception. The foundation
+  workflow runs that file on ubuntu, windows, and macos. This is not an
+  acceptance result. ADR-015 remains not approved.
 - SQLite durability settings (each audited call costs 30 to 60 ms in synchronous
   writes; provisional).
 

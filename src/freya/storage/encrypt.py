@@ -17,7 +17,8 @@ covered by that file.
     python -m freya.storage.encrypt --show-recovery-key
 
 The passphrase is typed at the prompt. It is not an argument and it is
-not read from the environment. Key rotation is not this command.
+not read from the environment. Rotating or revoking a wrap is
+`python -m freya.storage.keys`.
 """
 
 import argparse

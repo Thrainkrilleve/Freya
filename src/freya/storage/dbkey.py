@@ -16,8 +16,9 @@ open a store, and it does not create a plaintext one. A wrong passphrase
 does not try the recovery key, and a wrong recovery key does not try
 the passphrase.
 
-Key rotation is not built. The key id in the bundle is what a later
-change will switch. ``sqlite.rekey`` is the stub that refuses until then.
+Rotation and revocation are ``storage/keys.py``. They replace wraps
+in this bundle. A data-key rotation also re-encrypts each store. The
+old data key is wiped from the process after that rotation commits.
 """
 
 import os
@@ -62,8 +63,19 @@ class Unlocked:
     """The data key for this process. It is not a file."""
 
     def __init__(self, dek: bytes, key_id: bytes):
-        self.dek = bytes(dek)
+        self._dek = bytearray(dek)
         self.key_id = bytes(key_id)
+
+    @property
+    def dek(self) -> bytes:
+        return bytes(self._dek)
+
+    def wipe(self) -> None:
+        """Overwrite the in-memory data key. The wraps on disk are left."""
+        for index in range(len(self._dek)):
+            self._dek[index] = 0
+
+        self._dek = bytearray()
 
     def __repr__(self) -> str:
         return "Unlocked(key_id=" + self.key_id.hex() + ")"
@@ -159,16 +171,97 @@ def _read_bundle(path: Path):
         raise StoreLocked("The database key could not be read.") from exc
 
 
-def _write_bundle(path: Path, bundle) -> None:
+def _fsync_write(path: Path, blob: bytes) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_bytes(dump_bundle(bundle))
-    os.replace(temporary, path)
+    flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC
+
+    if hasattr(os, "O_BINARY"):
+        flags |= os.O_BINARY
+
+    descriptor = os.open(path, flags, 0o600)
+    view = memoryview(blob)
+
+    try:
+        while view:
+            written = os.write(descriptor, view)
+            view = view[written:]
+
+        os.fsync(descriptor)
+    finally:
+        os.close(descriptor)
 
     try:
         os.chmod(path, 0o600)
     except OSError:
         pass
+
+
+def _fsync_dir(folder: Path) -> None:
+    """Flush the directory entry. Windows may refuse a directory, which is ignored."""
+    try:
+        descriptor = os.open(folder, os.O_RDONLY)
+    except OSError:
+        return
+
+    try:
+        os.fsync(descriptor)
+    except OSError:
+        pass
+    finally:
+        os.close(descriptor)
+
+
+def _write_bundle(path: Path, bundle) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + ".tmp")
+    _fsync_write(temporary, dump_bundle(bundle))
+    os.replace(temporary, path)
+    _fsync_dir(path.parent)
+
+
+def read_bundle(data_dir, environ=None):
+    """The on-disk wraps. The data key is not returned."""
+    return _read_bundle(bundle_path_for(data_dir, environ))
+
+
+def replace_bundle(path: Path, bundle, *, check) -> None:
+    """
+    Replace a key bundle atomically.
+
+    The previous bytes are copied to ``keys.bin.bak`` and fsynced first.
+    The new bytes are written to a temporary file, fsynced, and renamed
+    over the bundle. ``check`` must open the new bundle. If it fails,
+    the backup is renamed back. The backup is removed only after
+    ``check`` succeeds.
+    """
+    from freya.storage.sqlite import wipe_file
+
+    path = Path(path)
+    blob = dump_bundle(bundle)
+    backup = path.with_name(path.name + ".bak")
+    backup_tmp = path.with_name(path.name + ".bak.tmp")
+    temporary = path.with_name(path.name + ".tmp")
+    previous = path.read_bytes() if path.is_file() else None
+
+    if previous is not None:
+        _fsync_write(backup_tmp, previous)
+        os.replace(backup_tmp, backup)
+
+    try:
+        _fsync_write(temporary, blob)
+        os.replace(temporary, path)
+        _fsync_dir(path.parent)
+        check()
+    except BaseException:
+        if previous is not None and backup.is_file() and path.read_bytes() != previous:
+            os.replace(backup, path)
+            _fsync_dir(path.parent)
+
+        wipe_file(temporary)
+        raise
+
+    wipe_file(backup)
+    wipe_file(temporary)
 
 
 def _bind(dek: bytes, key_id: bytes) -> Unlocked:

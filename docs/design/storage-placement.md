@@ -156,8 +156,25 @@ leaves the original file untouched.
 python -m freya.storage.encrypt --backup-dir D:\FreyaBackups
 ```
 
-Key rotation is not this command. The key id is recorded in the bundle so a
-later change can rekey. `sqlite.rekey` refuses until then.
+Changing a passphrase re-wraps the same data key and does not rewrite a
+database. Changing the recovery key prints a new one once and the old one
+stops working. Changing the data key re-encrypts every live database, and
+it refuses to start without a verified backup on another drive. Removing
+the last unlock is refused. A rotation that stops halfway is resumed by
+running the same command again, or put back with `--rollback`.
+
+```text
+python -m freya.storage.keys status
+python -m freya.storage.keys rotate-passphrase
+python -m freya.storage.keys rotate-recovery
+python -m freya.storage.keys rotate-dek --backup-dir D:\FreyaBackups
+python -m freya.storage.keys revoke --which passphrase
+python -m freya.storage.keys revoke --which recovery
+```
+
+The passphrase stretch stays 256 MiB, 3 iterations, parallelism 4. Status
+prints which wraps exist. It does not print a passphrase, a recovery key,
+or a data key.
 
 The first backup was made on 2026-10-09 to `D:\FreyaBackups`, at the owner's request.
 It is personal data. That copy predates encryption. A backup made now is encrypted

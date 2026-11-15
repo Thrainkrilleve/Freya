@@ -49,6 +49,7 @@ jobs:
           tests/test_backup_encryption.py
           tests/test_key_custody.py
           tests/test_live_encryption.py
+          tests/test_key_rotation.py
 
   core-static-analysis:
     name: Core static analysis
