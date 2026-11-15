@@ -5,6 +5,7 @@ from typing import List
 
 from freya import host_checks
 from freya.storage import backup
+from freya.storage.dbkey import startup_warning as database_key_warning
 from freya.config import AUDIT_CHECKPOINT_PATH
 from freya.config import BACKGROUND_MODEL
 from freya.config import COMFYUI_COMMAND
@@ -507,6 +508,7 @@ class ControlPlane:
         )
         # A backup that failed at the last close, or an old one.
         messages.extend(backup.startup_warning(self.store.path.parent))
+        messages.extend(database_key_warning(self.store.path.parent))
 
         return messages
 

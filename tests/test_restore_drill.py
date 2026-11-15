@@ -8,7 +8,6 @@ import ast
 import hashlib
 import json
 import os
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -63,10 +62,9 @@ def _close(memory) -> None:
 
 
 def _contents(database: Path) -> str:
-    connection = sqlite3.connect(
-        f"file:{database.resolve().as_posix()}?mode=ro",
-        uri=True,
-    )
+    from freya.storage.sqlite import connect as open_store
+
+    connection = open_store(database, read_only=True)
 
     try:
         rows = connection.execute("SELECT content FROM memories").fetchall()
@@ -76,11 +74,22 @@ def _contents(database: Path) -> str:
     return " ".join(row[0] for row in rows)
 
 
+def _open_database(path: Path, **kwargs):
+    """A live store is encrypted. An unsealed backup image is ordinary SQLite."""
+    from freya.storage.sqlite import connect, is_plaintext_sqlite, open_legacy
+
+    if is_plaintext_sqlite(path):
+        return open_legacy(
+            path,
+            read_only=kwargs.get("read_only", True),
+            isolation_level=kwargs.get("isolation_level", ""),
+        )
+
+    return connect(path, **kwargs)
+
+
 def _tombstones(path: Path) -> list:
-    connection = sqlite3.connect(
-        f"file:{path.resolve().as_posix()}?mode=ro",
-        uri=True,
-    )
+    connection = _open_database(path, read_only=True)
 
     try:
         return connection.execute(
@@ -91,7 +100,7 @@ def _tombstones(path: Path) -> list:
 
 
 def _insert_tombstone(path: Path, artifact_id: str) -> None:
-    connection = sqlite3.connect(path, isolation_level=None)
+    connection = _open_database(path, read_only=False, isolation_level=None)
 
     try:
         connection.execute(
@@ -250,7 +259,11 @@ def test_an_older_live_ledger_gains_tombstones_from_the_backup(scratch, tmp_path
         allow_same_drive=True,
         environ={},
     )
-    ledger.write_bytes(empty)
+    image = tmp_path / "older-ledger.db"
+    image.write_bytes(empty)
+    from freya.storage.sqlite import install_encrypted
+
+    install_encrypted(image, ledger)
     restore(newer, scratch, environ={})
 
     assert _tombstones(ledger) != []

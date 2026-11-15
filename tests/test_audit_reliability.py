@@ -385,7 +385,9 @@ def test_failed_commit_leaves_the_store_usable(store):
         "DEFERRABLE INITIALLY DEFERRED)"
     )
 
-    with pytest.raises(sqlite3.IntegrityError):
+    from freya.storage.sqlite import IntegrityError as StoreIntegrityError
+
+    with pytest.raises(StoreIntegrityError):
         with store.transaction() as connection:
             connection.execute("INSERT INTO child VALUES (42)")
 

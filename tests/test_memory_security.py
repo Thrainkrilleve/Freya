@@ -391,7 +391,9 @@ def test_forgetting_a_memory_is_all_or_nothing(memory):
         "BEGIN SELECT RAISE(ABORT, 'refused'); END"
     )
 
-    with pytest.raises(sqlite3.Error):
+    from freya.storage.sqlite import Error as StoreError
+
+    with pytest.raises(StoreError):
         memory.delete_memory(memory_id)
 
     assert memory.get_memory(memory_id)["content"] == "The alarm code is 1357."

@@ -1,5 +1,5 @@
 import json
-import sqlite3
+from freya.storage.sqlite import IntegrityError as StoreIntegrityError
 
 import pytest
 
@@ -94,10 +94,10 @@ def test_error_summary_is_truncated(store, audit):
 def test_rows_cannot_be_updated_or_deleted(store, audit):
     record(audit)
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(StoreIntegrityError):
         store.execute("UPDATE audit_event SET actor = 'someone-else'")
 
-    with pytest.raises(sqlite3.IntegrityError):
+    with pytest.raises(StoreIntegrityError):
         store.execute("DELETE FROM audit_event")
 
     assert audit.verify().ok is True

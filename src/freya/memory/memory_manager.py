@@ -1,6 +1,5 @@
 import json
 import math
-import sqlite3
 
 from freya.core.model_runtime import (
     ModelRuntimeUnavailable,
@@ -12,6 +11,7 @@ from freya.memory.deletion_ledger import (
     is_protected,
 )
 from freya.paths import data_dir
+from freya.storage import sqlite as sqlite3
 
 
 DATA_DIR = data_dir()

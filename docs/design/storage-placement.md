@@ -116,8 +116,48 @@ python -m freya.storage.restore --from <folder> --allow-unencrypted
 
 `python devtools/restore_drill.py` times a scratch backup that is encrypted, then
 deleted, restored and checked. It does not read the owner's data directory and it
-does not use the machine's keystore. Live database encryption and key rotation are
-not part of this step.
+does not use the machine's keystore. The scratch stores it creates are SQLCipher
+databases. The drill's own data key is a throwaway, held in that process.
+
+## Live databases
+
+Freya's own databases are encrypted at rest. The binding is `sqlcipher3` 0.6.5
+or newer, because that release has Python 3.12 wheels for Windows, Linux, and
+macOS. `sqlcipher3-binary` does not: its wheel is Linux x86_64 only. One data
+key, the same wrap and unwrap as a backup, encrypts every live store. It is
+handed to SQLCipher as a raw key, so opening a store does not run PBKDF2. The
+page size is 4096, the HMAC is SHA-512, the plaintext header size is 0, memory
+wiping is on, and temporary tables stay in memory. SQLCipher encrypts the
+database, the journal, and the WAL. The full-text index lives inside
+`freya_memory.db`.
+
+The stores are the memory database (memories, conversations, and that index),
+the control database, the usage ledger, the task journal, the media catalog,
+and the deletion ledger outside `data/`. A knowledge store is not built. Every
+connection goes through `storage/sqlite.py`. A direct `sqlite3` import anywhere
+else under `src/freya` fails a test.
+
+No keystore means Freya asks for the passphrase at the terminal, or refuses
+when there is no terminal. She does not create a plaintext database and she
+does not write the data key next to the data. The wraps are
+`freya_db_keys/keys.bin` beside the data folder, or the file named by
+`FREYA_DB_KEYS`. A recovery key is printed once. Show it again, once, with:
+
+```text
+python -m freya.storage.encrypt --show-recovery-key
+```
+
+A database that is still ordinary SQLite is not opened. The migration takes a
+verified backup on another drive first, checks the copy, checks row counts,
+and only then replaces the file. Running it again is safe. A failed check
+leaves the original file untouched.
+
+```text
+python -m freya.storage.encrypt --backup-dir D:\FreyaBackups
+```
+
+Key rotation is not this command. The key id is recorded in the bundle so a
+later change can rekey. `sqlite.rekey` refuses until then.
 
 The first backup was made on 2026-10-09 to `D:\FreyaBackups`, at the owner's request.
 It is personal data. That copy predates encryption. A backup made now is encrypted

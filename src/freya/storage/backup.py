@@ -17,7 +17,6 @@ import hashlib
 import json
 import os
 import shutil
-import sqlite3
 import sys
 import tempfile
 from datetime import datetime
@@ -56,12 +55,19 @@ from freya.storage.custody import (
     NoKeyStore,
     default_custody,
     format_recovery_key,
-    make_recovery_body,
+    new_data_key,
     open_passphrase_body,
     open_recovery_body,
     prompt_passphrase,
-    seal_with_passphrase,
+    unwrap_data_key,
     unwrap_os,
+)
+from freya.storage.sqlite import (
+    LIVE_DATABASES,
+    StoreError,
+    legacy_problem,
+    plaintext_image,
+    wipe_plaintext_tree,
 )
 from freya.storage.placement import (
     DATA_DIR,
@@ -88,16 +94,10 @@ UNENCRYPTED_MIGRATION = (
     "migration flag for backups made before encryption."
 )
 
-# Copied with SQLite's own backup, which gives a consistent copy even
-# of a database that is in use. The copy is sealed before it is published.
-DATABASES = (
-    "freya_memory.db",
-    "freya_control.db",
-    "freya_usage.db",
-    "freya_tasks.db",
-    # The media library keeps its database under data/media/.
-    "media/freya_media.db",
-)
+# Copied with a consistent snapshot, then sealed. The names are the live
+# stores. An encrypted store is exported to a plaintext image in memory
+# of the seal; the temporary file that holds that image is overwritten.
+DATABASES = LIVE_DATABASES
 
 # The deletion ledger lives outside data/ so a copy of that folder does
 # not take it. A backup copies it under this name. Restore will not
@@ -174,30 +174,6 @@ def _sha256(path: Path) -> str:
             digest.update(block)
 
     return digest.hexdigest()
-
-
-def _copy_database(source: Path, target: Path) -> None:
-    # Opened read-only: a backup must never change what it copies.
-    # The plaintext copy lives in a temporary directory and is removed
-    # before this returns; only the sealed bytes are published.
-    original = sqlite3.connect(f"file:{source.as_posix()}?mode=ro", uri=True)
-
-    try:
-        copy = sqlite3.connect(target)
-
-        try:
-            original.backup(copy)
-            # WAL is a property of the copy too; a backup should be
-            # one plain file that can be picked up and carried.
-            copy.execute("PRAGMA journal_mode = DELETE")
-            verdict = copy.execute("PRAGMA integrity_check").fetchone()[0]
-        finally:
-            copy.close()
-    finally:
-        original.close()
-
-    if verdict != "ok":
-        raise BackupRefused(f"The copy of {source.name} did not pass its check.")
 
 
 def _known(name: str) -> bool:
@@ -286,11 +262,15 @@ def _plain_bytes(kind: str, source: Path) -> bytes:
     if kind != "database":
         return _read_limited(source, MAX_MEMBER_BYTES)
 
-    with tempfile.TemporaryDirectory(prefix="freya-backup-") as temp:
-        copy = Path(temp) / "copy.db"
-        _copy_database(source, copy)
+    try:
+        plain = plaintext_image(source)
+    except StoreError as exc:
+        raise BackupRefused(str(exc)) from exc
 
-        return _read_limited(copy, MAX_MEMBER_BYTES)
+    if len(plain) > MAX_MEMBER_BYTES:
+        raise BackupRefused("The backup file is incomplete.")
+
+    return plain
 
 
 def _require_wrap(wraps, method: int, missing: str) -> Wrap:
@@ -306,30 +286,8 @@ def _require_wrap(wraps, method: int, missing: str) -> Wrap:
 
 
 def _unwrap_saved(bundle: BundleFile, custody, passphrase, recovery_key):
-    """
-    Open the saved data key. The caller names one method. A failure
-    does not try the next.
-    """
-    if recovery_key is not None:
-        from freya.storage.custody import parse_recovery_key
-
-        raw = parse_recovery_key(recovery_key)
-        wrap = _require_wrap(bundle.wraps, METHOD_RECOVERY, "This backup has no recovery wrap.")
-
-        return open_recovery_body(raw, wrap.body, bundle.key_id)
-
-    if passphrase is not None:
-        wrap = _require_wrap(
-            bundle.wraps,
-            METHOD_PASSPHRASE,
-            "This backup has no passphrase wrap. Use the recovery key.",
-        )
-
-        return open_passphrase_body(
-            passphrase, wrap.body, key_id=bundle.key_id, purpose=PURPOSE_DEK,
-        )
-
-    return unwrap_os(bundle.wraps, custody, bundle.key_id, purpose=PURPOSE_DEK)
+    """Open the saved data key. One method, and a failure does not try the next."""
+    return unwrap_data_key(bundle, custody, passphrase, recovery_key)
 
 
 def _new_keys(custody, passphrase):
@@ -338,49 +296,7 @@ def _new_keys(custody, passphrase):
     returned to the caller and is not written. A sealed copy is kept
     on the bundle until the caller acknowledges it.
     """
-    if passphrase is None and not custody.available():
-        raise BackupRefused(
-            "No keystore is available. A passphrase is required. Nothing was written."
-        )
-
-    key_id = os.urandom(16)
-    dek = os.urandom(32)
-    recovery_raw = os.urandom(32)
-    wraps = []
-    seal = None
-
-    if custody.available():
-        wraps.append(Wrap(
-            METHOD_OS,
-            custody.backend_id,
-            custody.wrap(dek, key_id=key_id, purpose=PURPOSE_DEK),
-        ))
-        seal = Wrap(
-            METHOD_OS,
-            custody.backend_id,
-            custody.wrap(recovery_raw, key_id=key_id, purpose=PURPOSE_RECOVERY),
-        )
-
-    if passphrase is not None or seal is None:
-        if passphrase is None:
-            raise BackupRefused(
-                "No keystore is available. A passphrase is required. Nothing was written."
-            )
-
-        dek_body, sealed_recovery = seal_with_passphrase(
-            passphrase, dek, recovery_raw, key_id=key_id,
-        )
-        wraps.append(Wrap(METHOD_PASSPHRASE, 0, dek_body))
-
-        if seal is None:
-            seal = Wrap(METHOD_PASSPHRASE, 0, sealed_recovery)
-
-    wraps.append(Wrap(
-        METHOD_RECOVERY, 0, make_recovery_body(recovery_raw, dek, key_id),
-    ))
-    bundle = BundleFile(key_id, False, wraps, seal)
-
-    return dek, bundle, format_recovery_key(recovery_raw)
+    return new_data_key(custody, passphrase)
 
 
 def back_up(
@@ -467,7 +383,7 @@ def back_up(
         for name, kind, source in sources:
             plain = _plain_bytes(kind, source)
             prepared.append((name, kind, plain, seal(plain, dek, key_id=key_id, name=name)))
-    except (OSError, sqlite3.Error) as exc:
+    except (OSError, StoreError) as exc:
         raise BackupRefused(f"The backup could not be completed: {exc}") from exc
 
     try:
@@ -1023,6 +939,7 @@ def materialise(folder, **unlock) -> Path:
 
         return root
     except BaseException:
+        wipe_plaintext_tree(root)
         shutil.rmtree(root, ignore_errors=True)
         raise
 
@@ -1061,15 +978,12 @@ def _check_plain(folder: Path) -> List[str]:
             continue
 
         if entry["kind"] == "database":
-            copy = sqlite3.connect(f"file:{path.as_posix()}?mode=ro", uri=True)
+            problem = legacy_problem(path)
 
-            try:
-                if copy.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
-                    problems.append(f"{entry['name']} fails its own check.")
-            except sqlite3.Error:
+            if problem == "cannot be opened.":
                 problems.append(f"{entry['name']} cannot be opened.")
-            finally:
-                copy.close()
+            elif problem == "fails its own check.":
+                problems.append(f"{entry['name']} fails its own check.")
 
     return problems
 
@@ -1104,6 +1018,7 @@ def check(
         try:
             return _check_plain(staging)
         finally:
+            wipe_plaintext_tree(staging)
             shutil.rmtree(staging, ignore_errors=True)
 
     if _is_legacy(folder):

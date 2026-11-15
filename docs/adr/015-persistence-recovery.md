@@ -62,8 +62,51 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
 - A backup made before encryption restores only when the caller passes the
   explicit migration flag (`allow_unencrypted`, or `--allow-unencrypted` on
   the command). New backups are encrypted. The proposed decision below is
-  unchanged and is not approved. Live database encryption and key rotation
-  are not built.
+  unchanged and is not approved.
+- Live stores are SQLCipher 4 databases, opened only by
+  `storage/sqlite.py`. The binding is `sqlcipher3` 0.6.5 or newer
+  (coleifer/sqlcipher3). That release publishes Python 3.12 wheels for
+  Windows, Linux, and macOS. `sqlcipher3-binary` 0.6.0 is Linux x86_64
+  only, so it is not the binding. `sqlcipher3-wheels` is the unofficial
+  fork that first published the other wheels; the official package has
+  absorbed them. The data key is the same 32-byte key KeyCustody already
+  wraps (`storage/dbkey.py` calls `new_data_key` and `unwrap_data_key`).
+  It is passed as SQLCipher's raw key (`PRAGMA key = "x'<64 hex chars>'"`),
+  so PBKDF2 does not run on every open. The pinned settings, applied after
+  the key and before the first read, are page size 4096, HMAC-SHA512,
+  PBKDF2-HMAC-SHA512 recorded but not applied to the raw key, plaintext
+  header size 0, `cipher_memory_security = ON`, and `temp_store = MEMORY`.
+  `secure_delete = ON` is set on a writable connection. SQLCipher encrypts
+  the database, the rollback journal, and the WAL. The `-shm` file is the
+  WAL index, not page text. Temporary files are not encrypted, so they are
+  kept in memory. The full-text indexes live inside the database file.
+  The first 16 bytes of a file are SQLCipher's salt, not the data key.
+- The stores are `freya_memory.db` (memories, conversations, and the FTS5
+  index), `freya_control.db`, `freya_usage.db`, `freya_tasks.db`,
+  `media/freya_media.db`, and the deletion ledger outside `data/`. A
+  knowledge store is not built (ADR-006). A missing unlock refuses. No
+  keystore and no passphrase refuses. A plaintext file refuses and names
+  `python -m freya.storage.encrypt`. Nothing falls back to a plaintext
+  store or to a key file beside the data. The wraps live outside `data/`
+  (`freya_db_keys/keys.bin`, or `FREYA_DB_KEYS`).
+- Migrating a plaintext database is an explicit command. It takes a
+  verified backup first, checks integrity and row counts, writes an
+  encrypted sibling, and only then replaces the file. A failed check
+  leaves the original bytes in place. The old file and its `-journal`,
+  `-wal`, and `-shm` sidecars are overwritten and removed. Running it
+  again opens an encrypted store and does not rewrite it. New stores are
+  encrypted when they are created.
+- A backup still seals a plaintext SQLite image with the backup data key.
+  The temporary image is overwritten before the seal is published.
+  Restore imports that image into a SQLCipher file under the current live
+  key, so a later rotation does not need the old page key to read an old
+  backup. The scratch drill checks integrity, row counts, the audit
+  chain, and the ledger rule on those encrypted stores.
+- Key rotation and revocation are not built. The key id is recorded in
+  the database key bundle. `sqlite.rekey` refuses and changes nothing. A
+  later change would open each store with the current raw key, run
+  `PRAGMA rekey`, and record the new key id. Old backups stay sealed
+  under their own data key.
 
 ## Validation owed
 
@@ -107,7 +150,23 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   about 0.25 s on that host.
   This is not a measurement of the owner's databases, and it is not an
   acceptance result. It does not replace the 2026-11-13 figures above.
-  Live database encryption and key rotation remain open.
+- Live database encryption. `tests/test_live_encryption.py` covers a
+  round trip, a wrong key, a missing unlock, a passphrase and a wrong
+  passphrase, the recovery key, a marker string absent from the database
+  and from its WAL, journal, and shared-memory files, a plaintext file
+  refused until `python -m freya.storage.encrypt`, a migration that can
+  be run again, a failed migration that leaves the original bytes in
+  place, and that only `storage/sqlite.py` imports `sqlite3` or
+  `sqlcipher3`. The scratch drill now creates those stores encrypted,
+  restores them encrypted, and checks the same integrity, row counts,
+  audit chain, and ledger rule. Measured on Linux scratch data on
+  2026-11-15 (`python devtools/restore_drill.py`, synthetic rows in a
+  temporary directory, live stores encrypted): three runs finished in
+  0.499 s, 0.585 s and 0.559 s. One of those spent 0.274 s backing up,
+  0.092 s restoring and 0.028 s checking. The gap from that backup to
+  the end of the check was 0.132 s. This is not a measurement of the
+  owner's databases, and it is not an acceptance result. It does not
+  replace the figures above. Key rotation and revocation remain open.
 - SQLite durability settings (each audited call costs 30 to 60 ms in synchronous
   writes; provisional).
 

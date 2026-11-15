@@ -1,10 +1,11 @@
 import re
-import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from freya.memory.deletion_ledger import TABLES
+from freya.storage import sqlite as sqlite3
+from freya.storage.sqlite import StoreError, copy_connection, is_db_error
 
 
 BACKUP_FOLDER = "backups"
@@ -113,13 +114,10 @@ class ConversationStore:
                 return
 
             folder.mkdir(parents=True, exist_ok=True)
-            copy = sqlite3.connect(target)
-
-            try:
-                self.connection.backup(copy)
-            finally:
-                copy.close()
-        except (OSError, sqlite3.Error):
+            copy_connection(self.connection, target)
+        except Exception as error:
+            if not isinstance(error, (OSError, StoreError)) and not is_db_error(error):
+                raise
             # A backup that cannot be made must not stop Freya; the new
             # tables only add to the database and change nothing in it.
             pass

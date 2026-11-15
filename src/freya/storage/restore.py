@@ -20,7 +20,6 @@ import argparse
 import json
 import os
 import shutil
-import sqlite3
 import sys
 from pathlib import Path
 
@@ -31,6 +30,15 @@ from freya.memory.deletion_ledger import (
     ledger_path_for,
 )
 from freya.storage.placement import DATA_DIR
+from freya.storage.sqlite import (
+    StoreError,
+    StoreLocked,
+    connect,
+    install_encrypted,
+    is_plaintext_sqlite,
+    open_legacy,
+    wipe_plaintext_tree,
+)
 from freya.storage.backup import (
     LEDGER_COPY_NAME,
     UNENCRYPTED_MIGRATION,
@@ -44,12 +52,22 @@ from freya.storage.backup import (
 )
 
 
+def _open_ledger(path: Path):
+    """
+    The unsealed backup image is plaintext. The live ledger is encrypted.
+    """
+    if is_plaintext_sqlite(path):
+        return open_legacy(path, read_only=True)
+
+    return connect(path, read_only=True)
+
+
 def _read_ledger(path: Path):
     """The store identity and the tombstones, oldest first."""
-    connection = sqlite3.connect(
-        f"file:{path.resolve().as_posix()}?mode=ro",
-        uri=True,
-    )
+    try:
+        connection = _open_ledger(path)
+    except (StoreError, StoreLocked) as error:
+        raise BackupRefused("The deletion ledger could not be read.") from error
 
     try:
         if connection.execute("PRAGMA integrity_check").fetchone()[0] != "ok":
@@ -61,7 +79,9 @@ def _read_ledger(path: Path):
         rows = connection.execute(
             "SELECT artifact_id, kind, deleted_at FROM tombstone ORDER BY seq"
         ).fetchall()
-    except sqlite3.Error as error:
+    except BackupRefused:
+        raise
+    except Exception as error:
         raise BackupRefused("The deletion ledger could not be read.") from error
     finally:
         connection.close()
@@ -103,6 +123,18 @@ def _compatible(backup_file: Path, live: Path) -> None:
 
 
 def _replace(source: Path, dest: Path) -> None:
+    """
+    Put ``source`` at ``dest``. A database image is imported into a
+    SQLCipher file. Any other file is copied as it is.
+    """
+    if is_plaintext_sqlite(source):
+        try:
+            install_encrypted(source, dest)
+        except (StoreError, StoreLocked) as error:
+            raise BackupRefused(str(error)) from error
+
+        return
+
     dest.parent.mkdir(parents=True, exist_ok=True)
     temporary = dest.with_name(dest.name + ".restore")
     shutil.copy2(source, temporary)
@@ -114,7 +146,7 @@ def _replace(source: Path, dest: Path) -> None:
 
 
 def _append_tombstones(live: Path, rows) -> None:
-    connection = sqlite3.connect(live, isolation_level=None)
+    connection = connect(live, isolation_level=None)
 
     try:
         connection.execute("BEGIN IMMEDIATE")
@@ -161,7 +193,7 @@ def _replay(database: Path, ledger: Path) -> None:
     if not database.is_file() or not ledger.is_file():
         return
 
-    connection = sqlite3.connect(
+    connection = connect(
         database,
         isolation_level=None,
         check_same_thread=False,
@@ -182,7 +214,7 @@ def _replay(database: Path, ledger: Path) -> None:
 
         try:
             connection.close()
-        except sqlite3.Error:
+        except Exception:
             pass
 
 
@@ -266,6 +298,7 @@ def restore(
         try:
             return _restore_plain(staging, data_dir, environ)
         finally:
+            wipe_plaintext_tree(staging)
             shutil.rmtree(staging, ignore_errors=True)
 
     if _is_legacy(folder):

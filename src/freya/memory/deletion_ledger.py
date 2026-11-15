@@ -28,11 +28,14 @@ before `initialize_protection` would then switch it off.
 """
 
 import os
-import sqlite3
 import uuid
 from datetime import datetime, timezone
 from itertools import zip_longest
 from pathlib import Path
+
+from freya.storage import sqlite as sqlite3
+from freya.storage.dbkey import StoreLocked
+from freya.storage.sqlite import StoreError, copy_connection, open_matching
 
 
 # The kind of a deleted record, and the table it was in.
@@ -368,14 +371,14 @@ class DeletionLedger:
             raise StorageQuarantined("The deletion ledger is missing.")
 
         try:
-            # mode=rw: an existing file is opened, never a new one made.
+            # create=False: an existing file is opened, never a new one made.
             connection = sqlite3.connect(
-                f"{path.as_uri()}?mode=rw",
-                uri=True,
+                path,
+                create=False,
                 isolation_level=None,
                 check_same_thread=False,
             )
-        except sqlite3.Error as error:
+        except (sqlite3.Error, StoreError, StoreLocked) as error:
             raise StorageQuarantined("The deletion ledger could not be opened.") from error
 
         ledger = cls(connection, None)
@@ -624,11 +627,8 @@ def _back_up(database: Path, backup: Path) -> None:
 
     try:
         reader = sqlite3.connect(database)
-        copy = sqlite3.connect(backup)
-        reader.backup(copy)
-        copy.close()
-
-        copy = sqlite3.connect(backup)
+        copy_connection(reader, backup)
+        copy = open_matching(reader, backup)
 
         if copy.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
             raise ProtectionSetupError("The backup copy is damaged.")
@@ -648,7 +648,7 @@ def _back_up(database: Path, backup: Path) -> None:
 
 
 def _create_ledger(path: Path, store_id: str) -> None:
-    connection = sqlite3.connect(path, isolation_level=None)
+    connection = sqlite3.connect(path, isolation_level=None, check_same_thread=False)
 
     try:
         connection.execute("PRAGMA synchronous = FULL")
@@ -762,7 +762,7 @@ def initialize_protection(database_path, ledger_path, backup_path) -> str:
             raise ProtectionSetupError(f"{path.name} already exists and will not be overwritten.")
 
     made_ledger = False
-    source = sqlite3.connect(database, isolation_level=None)
+    source = sqlite3.connect(database, isolation_level=None, check_same_thread=False)
 
     try:
         source.execute("PRAGMA secure_delete = ON")

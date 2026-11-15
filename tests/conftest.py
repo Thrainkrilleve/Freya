@@ -2,6 +2,20 @@ import pytest
 
 from freya.config import MODEL
 from freya.core.model_runtime import configure_model_runtime
+from freya.storage.dbkey import bind_memory_key, clear_unlock
+
+
+@pytest.fixture(autouse=True)
+def _unlock_live_databases():
+    """
+    A throwaway in-memory data key so store opens in tests are encrypted.
+
+    It writes no key file and does not touch the operating system's
+    keystore. A test that wants the locked refusal calls ``clear_unlock``.
+    """
+    bind_memory_key()
+    yield
+    clear_unlock()
 
 
 class FakeOllama:

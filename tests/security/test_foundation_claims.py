@@ -8,8 +8,9 @@ an audit entry for every brokered call, a hash chain that shows a
 rewrite, the gateway's one-time key and cookie, and a loopback bind.
 """
 
-import sqlite3
 from pathlib import Path
+
+from freya.storage.sqlite import DatabaseError, connect as open_store
 
 from freya.core.audit import SqliteAuditLog
 from freya.core.capabilities import (
@@ -120,14 +121,14 @@ def test_a_rewritten_audit_row_breaks_the_chain(tmp_path):
     path = store.path
     store.close()
 
-    connection = sqlite3.connect(path)
+    connection = open_store(path)
     try:
         try:
             connection.execute(
                 "UPDATE audit_event SET decision_reason = 'changed' "
                 "WHERE event_id = 1"
             )
-        except sqlite3.DatabaseError as exc:
+        except DatabaseError as exc:
             assert "append-only" in str(exc)
         else:
             raise AssertionError("an ordinary update of the audit log was accepted")
