@@ -265,7 +265,7 @@ class ConversationMemory:
 
     # -- looking things up ---------------------------------------------------------
 
-    def recall(self, query=None, for_reply=False) -> dict:
+    def recall(self, query=None, for_reply=False, for_screening=False) -> dict:
         """
         Read what is stored on the model's behalf. This is the handler
         of the `conversation.recall` capability: it is run by the
@@ -274,8 +274,10 @@ class ConversationMemory:
 
         The model's own tool call is given the passages of earlier
         conversations that match its search. `for_reply` is Freya's
-        one read per turn of everything a reply may draw on; it is not
-        a declared tool argument, so the model cannot ask for it.
+        one read per turn of everything a reply may draw on.
+        `for_screening` is the (id, text) pairs a cloud brief is
+        checked against. Neither is a declared tool argument, so the
+        model cannot ask for them.
         """
         scope = self.context.scope
 
@@ -289,6 +291,12 @@ class ConversationMemory:
             "answer",
         ):
             raise PermissionError("Stored records are not available to this scope.")
+
+        if for_screening:
+            return [
+                (str(row[0]), row[3] or "")
+                for row in self.memory.get_all_memories()
+            ]
 
         if for_reply:
             # Catch-up reads old conversations for the model, so it must
@@ -379,8 +387,9 @@ class ConversationMemory:
     def _recall_for_reply(self, user_input):
         """
         Ask the broker for what is stored, once for the turn. Returns
-        None when the read was refused or failed; nothing stored
-        reaches the model then.
+        None when there is no broker, or the read was refused or
+        failed. Nothing stored is read on that path, and nothing
+        stored reaches the model.
         """
         if self.broker is None:
             return None
@@ -669,3 +678,22 @@ class ConversationMemory:
         ]
 
         return "\n".join(lines)
+
+
+def memories_for_screening(broker):
+    """
+    The (id, text) pairs a cloud brief is checked against.
+
+    Read only through ``conversation.recall``. A missing broker or a
+    refused read raises, so a brief is not screened against an empty
+    store and then sent.
+    """
+    if broker is None:
+        raise RuntimeError("Stored memories could not be read.")
+
+    result = broker.invoke(CONVERSATION_RECALL, for_screening=True)
+
+    if not result.success or not isinstance(result.result, list):
+        raise RuntimeError("Stored memories could not be read.")
+
+    return result.result

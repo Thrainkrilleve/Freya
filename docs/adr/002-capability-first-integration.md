@@ -13,8 +13,11 @@ A feature reaches another through a named capability invoked on `CapabilityBroke
 (`core/capabilities/broker.py`): policy is checked, availability is checked, a
 dispatch row is written, the handler runs, the outcome is written. The model reaches
 tools only through `ModelToolHost` (`tools/model_tools.py`), which offers only
-capabilities marked `model_tool` and never destructive ones. Conversation recall,
-cloud delegation, the model record, file reading and world view all follow this.
+capabilities marked `model_tool` and never destructive ones. Conversation recall, image generation, cloud delegation, the model record, file
+reading and world view all follow this. An image request (`image.generate`) and a
+memory read for a reply or for screening (`conversation.recall`) are broker calls.
+The image handler is the only code that talks to the image server. Owner memory
+commands still read and change the store directly; there is no write capability.
 
 ## Departs from the baseline
 

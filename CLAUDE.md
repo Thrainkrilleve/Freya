@@ -168,8 +168,9 @@ Rules for the spec:
   failed start says why when the server's log does (`failure_reason`), for example
   when Windows Smart App Control blocks one of ComfyUI's files. The
   paths inside Comfy Desktop's install are discovered, not documented by its vendor, so
-  an app update could move them. Image generation itself still calls ComfyUI directly,
-  not through the broker.
+  an app update could move them. An image request goes through `image.generate`
+  (`src/freya/image/request.py`). The handler in `main.py` is the only caller of
+  the image server.
 
 Known state: the system tools and every chat and embedding call run only through
 `CapabilityBroker`, which checks policy (deny by default), checks availability, writes
@@ -179,9 +180,10 @@ healthy; the Ollama provider's health is re-checked when a model call is unavail
 fails. The broker attributes everything to a fixed `local-owner` principal because
 there are no authenticated sessions yet. `core/llm.py` and `memory_manager.py` reach the
 model through a process-wide `ModelRuntime` set up by `build_local_control_plane()`, so
-the control plane must be built before `FreyaAssistant`. Still calling their backends
-directly: Whisper, Kokoro, ComfyUI, the memory store, the GPU manager's Ollama unload,
-and the startup model warm-up. `CapabilityDefinition` is far smaller than the
+the control plane must be built before `FreyaAssistant`. Image requests and the
+memory reads a reply or a screening uses go through the broker. Still calling
+their backends directly: Whisper, Kokoro, the GPU manager's model unload,
+and the startup model warm-up. Owner memory commands still touch the store. `CapabilityDefinition` is far smaller than the
 baseline's capability schema; its `destructive`/`requires_gpu` flags are interim.
 
 Model roles: a caller of `ModelRuntime` names a role, not a model. `conversation` is
@@ -430,7 +432,10 @@ the last 16 are sent to the model; the words stay stored.
 
 Stored memories, recent summaries and passages supplied for a reply go through one
 `conversation.recall` broker call per turn (provider `conversation-memory-local`,
-existing policy seed `alpha-conversation-recall`). The model's own recall tool uses
+existing policy seed `alpha-conversation-recall`). The same capability supplies
+the pairs a cloud brief is screened against (`memories_for_screening`); a missing
+broker or a refused read raises, so the brief is not checked against an empty
+store. The model's own recall tool uses
 the same capability. A question about the past (`ASKS_ABOUT_THE_PAST`) gets a wider
 bounded search. Retrieved records retain source/trust labels and are not cached in
 live messages. Denied or unavailable recall supplies no stored records; it is not
