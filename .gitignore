@@ -92,6 +92,9 @@ clients/unreal/*/Build/
 clients/unreal/*/Fixtures/*.wav
 clients/unreal/*/Fixtures/*.f32
 
+# Written by `python -m freya.sandbox probe`. The template stays.
+docs/results/sandbox-probes.md
+
 # Session handoffs stay local (.agents/handoffs/README.md)
 .agents/handoffs/*
 !.agents/handoffs/README.md

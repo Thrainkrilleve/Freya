@@ -126,13 +126,30 @@ nothing from Freya), `wsl_setup.py`, `probes.py`, and `python -m freya.sandbox
 status | setup | probe`. Tested in `tests/test_wsl_sandbox.py` with a fake WSL;
 the runner itself is tested directly on Linux.
 
+What to run on this PC, before any of the steps below. From the repository
+root, with Freya's virtual environment:
+
+```
+python -m freya.sandbox probe
+```
+
+Needs Python 3.12 and this repository's environment. It does not need WSL,
+Docker, or an administrator, and it does not install them or change a system
+setting. It writes `docs/results/sandbox-probes.md`. The empty shape of that
+file is `docs/results/sandbox-probes.template.md`. The verified tier stays T0,
+and `code.run` stays unregistered. On Windows, if the sandbox distribution
+from the steps below is already built, the same command also runs the
+container checks. It does not attach a Windows drive. On Linux and macOS it
+records the facilities that exist there and leaves the container checks not
+run. The steps below are a separate owner action.
+
 Owner steps, in order:
 
 1. As administrator, then restart: `wsl --install --no-distribution`.
 2. `wsl --install Debian --name freya-sandbox --no-launch`.
 3. `python -m freya.sandbox setup` (installs Podman in that distribution, writes its
    `/etc/wsl.conf`, builds the image; needs the network, a few hundred MB).
-4. `python -m freya.sandbox probe`, and keep the printed results.
+4. `python -m freya.sandbox probe` again, and keep `docs/results/sandbox-probes.md`.
 
 What was built, against the intended shape below:
 

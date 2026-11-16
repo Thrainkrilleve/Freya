@@ -657,7 +657,10 @@ Code sandbox: `freya.sandbox` is the contract for running code a model wrote
 (`service.py`). The WSL2 container profile is built (`wsl.py`, the in-container
 `image/runner.py`, which must not import `freya`, `wsl_setup.py`, `probes.py`, and
 `python -m freya.sandbox status|setup|probe`) but has not been run on the PC;
-`build_local_control_plane` does not register it, and a test checks that. The owner
+`build_local_control_plane` does not register it, and a test checks that.
+`python -m freya.sandbox probe` only records which facilities are visible and
+writes `docs/results/sandbox-probes.md`. It does not install software, change
+a setting, or register the capability. The owner
 sets it up and runs the probes before any registration or policy rule. The design,
 `docs/design/code-sandbox.md`, is a proposal that is not adopted: a Linux container
 in WSL2, because this PC runs Windows 11 Home, which has no Hyper-V. Keep these
