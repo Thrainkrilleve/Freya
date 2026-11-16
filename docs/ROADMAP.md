@@ -97,8 +97,6 @@ subset. One owner, one principal (`local-owner`).
   `build-mode: none`. This fork is user-owned, so it cannot set the
   config-file property. [codeql-config.yml](../.github/codeql/codeql-config.yml).
 - Unreal C++ is not built in CI.
-- `README.md` still says the deletion ledger is unused. Startup calls
-  `ensure_memory_protection()`.
 
 ## 2. Now
 
@@ -106,12 +104,8 @@ Next few weeks. Each one can start without a new architecture.
 
 ### 1. Correct the runbook
 
-- **Goal:** README and the startup path say the same thing about protected memory.
-- **Why:** A wrong runbook sends Thrain looking for a switch that is already on.
-- **Depends:** nothing.
-- **Size:** S
-- **Where:** [README.md](../README.md), `src/freya/main.py`,
-  [ADR-006](adr/006-memory-vs-knowledge-vs-session.md).
+Done. [README.md](../README.md) matches startup: `ensure_memory_protection()`
+runs before the assistant is built, and the ledger stays outside `data/`.
 
 ### 2. Skill files, still off
 
