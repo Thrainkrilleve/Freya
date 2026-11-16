@@ -20,7 +20,7 @@ at any defined label.
 | NEW-AS to NEW-BD | `design/openrig-lessons.md` | 2026-10-18, relabelled 2026-10-21 | Proposal, nothing built |
 | NEW-BE to NEW-BL | `design/learning-loop.md` | 2026-10-21 | Proposal with owner decisions, nothing built |
 | NEW-BM to NEW-BV | `design/freya-to-freya-cooperation.md` | 2026-10-09, relabelled 2026-10-21 | Proposal, nothing built |
-| NEW-BW to NEW-CG | `design/skill-learning.md` | 2026-10-22 | Proposal, not adopted; supersedes the mechanism of `learning-loop.md`. Built: the NEW-CB gate for hint and model changes (build step 1) |
+| NEW-BW to NEW-CG | `design/skill-learning.md` | 2026-10-22 | Proposal, not adopted; supersedes the mechanism of `learning-loop.md`. Built: the gate for hint and model changes, and the skill file, loader, and matcher. Lookup is off unless FREYA_LEARNING=1. Three templates are empty for the owner to fill in |
 | NEW-LC11 | `design/attributed-chat-responses.md` | 2026-10-09 | Built; renumber at adoption |
 | NEW-CI to NEW-CU | `design/local-decider.md` | 2026-11-05 | Proposal, not adopted. The contract, today's rules and the `decide` capability exist; the control plane does not register `decide` |
 | NEW-CV to NEW-DA | `design/model-tiers.md` | 2026-11-05 | Proposal, nothing built; extends `skill-learning.md` |

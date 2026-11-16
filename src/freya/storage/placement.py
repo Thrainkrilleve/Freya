@@ -39,6 +39,7 @@ class DataKind:
 # test checks the names against what the code writes.
 DATA_KINDS = (
     DataKind("freya_memory.db", FAST, "Saved memories and every conversation", True),
+    DataKind("skills", FAST, "Skill files, looked up only when learning is on", True),
     DataKind("freya_control.db", FAST, "Policy rules and the audit log"),
     DataKind("freya_usage.db", FAST, "What each model route has used"),
     DataKind("freya_tasks.db", FAST, "Local task states and their transitions"),

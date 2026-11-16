@@ -62,7 +62,7 @@ def test_a_candidate_may_name_its_own_held_out_cases():
 @pytest.mark.parametrize("changes, words", [
     ({"extra": 1}, "Unknown candidate fields"),
     ({"name": "Not A Name"}, "lowercase"),
-    ({"kind": "skill"}, "step 2"),
+    ({"kind": "skill"}, "does not promote"),
     ({"kind": "router"}, "Kind is one of"),
     ({"value": "urgent"}, "Value is one of"),
     ({"change": {"model": "x"}}, "nothing else"),
