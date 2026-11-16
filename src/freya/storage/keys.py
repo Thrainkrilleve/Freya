@@ -9,6 +9,7 @@ key, or a data key as a plain file, and nothing here puts them in an
 exception.
 
     python -m freya.storage.keys status
+    python -m freya.storage.keys add-passphrase
     python -m freya.storage.keys rotate-passphrase
     python -m freya.storage.keys rotate-recovery
     python -m freya.storage.keys rotate-dek --backup-dir D:\\FreyaBackups
@@ -36,6 +37,7 @@ from freya.storage.custody import (
     PURPOSE_DEK,
     PURPOSE_RECOVERY,
     BackupRefused as CustodyRefused,
+    accept_new_passphrase,
     default_custody,
     format_recovery_key,
     make_recovery_body,
@@ -312,21 +314,22 @@ def rotate_passphrase(
     kept until the new wrap unwraps. A wrong current passphrase writes
     nothing.
     """
-    from freya.storage.custody import _check_passphrase
-
     if custody is None:
         custody = default_custody(environ)
 
     try:
-        _check_passphrase(new_passphrase)
+        accept_new_passphrase(new_passphrase)
     except CustodyRefused as exc:
-        raise StoreLocked("A passphrase is required. Nothing was changed.") from exc
+        raise StoreLocked(str(exc) + " Nothing was changed.") from exc
 
     held = require_unlocked()
     bundle = read_bundle(data_dir, environ)
 
     if "passphrase" not in _methods(bundle):
-        raise StoreLocked("There is no passphrase wrap to replace. Nothing was changed.")
+        raise StoreLocked(
+            "There is no passphrase wrap to replace. "
+            "Run python -m freya.storage.keys add-passphrase. Nothing was changed."
+        )
 
     if _unwrap_one(bundle, custody, passphrase=current_passphrase) != held.dek:
         raise StoreLocked("The unlock was not accepted. Nothing was changed.")
@@ -384,6 +387,86 @@ def rotate_passphrase(
         _check_opens(path, fresh, custody, new_passphrase, None, held.dek)
 
     replace_bundle(path, updated, check=check)
+
+
+def _finish_add_passphrase(data_dir, journal, held, custody, passphrase, environ) -> None:
+    bundle = read_bundle(data_dir, environ)
+    path = bundle_path_for(data_dir, environ)
+
+    if "passphrase" in _methods(bundle):
+        if _unwrap_one(bundle, custody, passphrase=passphrase) != held.dek:
+            raise StoreLocked("The unlock was not accepted. Nothing was changed.")
+
+        _wipe_journal(journal)
+        return
+
+    wraps = list(bundle.wraps)
+    wraps.append(Wrap(
+        METHOD_PASSPHRASE,
+        0,
+        wrap_under_stretch(passphrase, held.dek, key_id=bundle.key_id, purpose=PURPOSE_DEK),
+    ))
+    updated = BundleFile(bundle.key_id, bundle.acknowledged, wraps, bundle.recovery_seal)
+
+    def check():
+        fresh = read_bundle(data_dir, environ)
+        _check_opens(path, fresh, custody, passphrase, None, held.dek)
+
+        if "os" in _methods(bundle) and custody.available():
+            if _unwrap_one(fresh, custody) != held.dek:
+                raise StoreLocked("The new wraps did not open. The previous wraps were kept.")
+
+    replace_bundle(path, updated, check=check)
+    _step("add-written", path)
+    _wipe_journal(journal)
+
+
+def add_passphrase(data_dir, passphrase, *, custody=None, environ=None) -> None:
+    """
+    Add one argon2id wrap beside the wraps that already open the data key.
+
+    The stores are not rewritten. A passphrase wrap that is already there
+    is refused. The passphrase is not written into the journal. A crash
+    leaves that journal, and the same command finishes the add.
+    """
+    try:
+        accept_new_passphrase(passphrase)
+    except CustodyRefused as exc:
+        raise StoreLocked(str(exc) + " Nothing was changed.") from exc
+
+    if custody is None:
+        custody = default_custody(environ)
+
+    held = require_unlocked()
+    existing, journal = _record_from_journal(data_dir, environ)
+
+    if existing is not None:
+        if existing.get("operation") != "add-passphrase":
+            raise StoreLocked("A rotation is already in progress. Nothing was changed.")
+
+        if existing.get("key_id") != held.key_id.hex():
+            raise StoreLocked("The rotation record does not match this key. Nothing was changed.")
+
+        _finish_add_passphrase(data_dir, journal, held, custody, passphrase, environ)
+        return
+
+    bundle = read_bundle(data_dir, environ)
+
+    if "passphrase" in _methods(bundle):
+        raise StoreLocked(
+            "A passphrase wrap already exists. "
+            "Run python -m freya.storage.keys rotate-passphrase. Nothing was changed."
+        )
+
+    record = {
+        "version": JOURNAL_VERSION,
+        "operation": "add-passphrase",
+        "phase": "writing",
+        "key_id": bundle.key_id.hex(),
+    }
+    _save_journal(journal, record)
+    _step("add-prepared", journal)
+    _finish_add_passphrase(data_dir, journal, held, custody, passphrase, environ)
 
 
 def rotate_recovery(
@@ -805,6 +888,11 @@ def rotate_dek(
     existing, journal = _record_from_journal(data_dir, environ)
 
     if existing is not None:
+        if existing.get("operation") == "add-passphrase":
+            raise StoreLocked(
+                "A passphrase wrap is already being added. Nothing was changed."
+            )
+
         _continue(
             data_dir, existing, journal, custody, passphrase, recovery_key, environ,
         )
@@ -881,6 +969,7 @@ def main(argv=None) -> int:
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("status")
     sub.add_parser("show-recovery-key")
+    sub.add_parser("add-passphrase")
     sub.add_parser("rotate-passphrase")
     sub.add_parser("rotate-recovery")
     dek = sub.add_parser("rotate-dek")
@@ -912,6 +1001,37 @@ def main(argv=None) -> int:
 
         if args.command == "show-recovery-key":
             return _show(args.data)
+
+        if args.command == "add-passphrase":
+            if not sys.stdin.isatty():
+                print(
+                    "A passphrase is asked for only on a terminal.",
+                    file=sys.stderr,
+                )
+                return 1
+
+            from freya.storage.dbkey import ensure_unlocked
+
+            if not bundle_path_for(args.data).is_file():
+                print("There is no database key yet. Nothing was changed.", file=sys.stderr)
+                return 1
+
+            # Adding the wrap is what makes a required passphrase possible.
+            # The setting must not block the unlock that adds it.
+            unlock_environ = os.environ.copy()
+            unlock_environ.pop("FREYA_REQUIRE_PASSPHRASE", None)
+            ensure_unlocked(args.data, interactive=False, environ=unlock_environ)
+
+            try:
+                phrase = prompt_passphrase(label="Database passphrase")
+                accept_new_passphrase(phrase)
+            except CustodyRefused as exc:
+                print(str(exc), file=sys.stderr)
+                return 1
+
+            add_passphrase(args.data, phrase, environ=unlock_environ)
+            print("A passphrase wrap was added. The databases were not rewritten.")
+            return 0
 
         if args.command == "rotate-passphrase":
             current_phrase = prompt_passphrase(label="Current database passphrase")

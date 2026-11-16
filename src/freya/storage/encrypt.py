@@ -15,10 +15,13 @@ covered by that file.
 
     python -m freya.storage.encrypt --backup-dir D:\\FreyaBackups
     python -m freya.storage.encrypt --show-recovery-key
+    python -m freya.storage.encrypt --with-passphrase
 
 The passphrase is typed at the prompt. It is not an argument and it is
-not read from the environment. Rotating or revoking a wrap is
-`python -m freya.storage.keys`.
+not read from the environment. ``--with-passphrase`` is only for a new
+key. An existing key gains a passphrase with
+``python -m freya.storage.keys add-passphrase``. Rotating or revoking a
+wrap is ``python -m freya.storage.keys``.
 """
 
 import argparse
@@ -28,9 +31,11 @@ from pathlib import Path
 
 from freya.memory.deletion_ledger import ProtectionSetupError, ledger_path_for
 from freya.storage.backup import BackupRefused, back_up, check
+from freya.storage.custody import accept_new_passphrase, prompt_passphrase
 from freya.storage.dbkey import (
     StoreLocked,
     acknowledge_recovery_key,
+    bundle_path_for,
     ensure_unlocked,
     reveal_recovery_key,
 )
@@ -275,6 +280,11 @@ def main(argv=None) -> int:
         action="store_true",
         help="Print the database recovery key once, if it has not been shown.",
     )
+    parser.add_argument(
+        "--with-passphrase",
+        action="store_true",
+        help="Also wrap a new database key with a passphrase. An existing key is left unchanged.",
+    )
     args = parser.parse_args(argv)
     data = args.data
 
@@ -298,8 +308,38 @@ def main(argv=None) -> int:
         print("Keep that key off this machine. It will not be shown again.")
         return 0
 
+    passphrase = None
+
+    if args.with_passphrase:
+        if bundle_path_for(data).is_file():
+            print(
+                "A database key already exists. "
+                "Run python -m freya.storage.keys add-passphrase. "
+                "Nothing was changed.",
+                file=sys.stderr,
+            )
+            return 1
+
+        if not sys.stdin.isatty():
+            print(
+                "A passphrase is asked for only on a terminal.",
+                file=sys.stderr,
+            )
+            return 1
+
+        try:
+            passphrase = prompt_passphrase(label="Database passphrase")
+            accept_new_passphrase(passphrase)
+        except BackupRefused as exc:
+            print(str(exc), file=sys.stderr)
+            return 1
+
     try:
-        created = ensure_unlocked(data, interactive=sys.stdin.isatty())
+        created = ensure_unlocked(
+            data,
+            passphrase=passphrase,
+            interactive=sys.stdin.isatty(),
+        )
     except StoreLocked as exc:
         print(str(exc), file=sys.stderr)
         return 1

@@ -50,6 +50,7 @@ jobs:
           tests/test_key_custody.py
           tests/test_live_encryption.py
           tests/test_key_rotation.py
+          tests/test_add_passphrase.py
           tests/test_skills.py
           tests/test_broker_bypass.py
           tests/test_sandbox_survey.py

@@ -30,9 +30,11 @@ subset. One owner, one principal (`local-owner`).
 - Memories, word-for-word conversations, and FTS5 with secure-delete.
   Startup opens memory in protected mode and replays the deletion ledger
   (`src/freya/main.py`). [ADR-006](adr/006-memory-vs-knowledge-vs-session.md).
-- Live databases are SQLCipher. Backups are AES-256-GCM. Passphrase,
-  recovery-key, and data-key rotation and revocation are built. The
-  scratch restore drill runs in CI. This is not an acceptance result.
+- Live databases are SQLCipher. Backups are AES-256-GCM. A passphrase
+  wrap can be added beside the OS wrap (`python -m freya.storage.keys
+  add-passphrase`). Passphrase, recovery-key, and data-key rotation and
+  revocation are built. The scratch restore drill runs in CI. This is
+  not an acceptance result.
   [ADR-015](adr/015-persistence-recovery.md).
 - Voice path goes through the broker. Image generation still calls
   ComfyUI directly. [ADR-002](adr/002-capability-first-integration.md).
