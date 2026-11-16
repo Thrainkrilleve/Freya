@@ -6,7 +6,10 @@ This function does not. If the broker is missing, or the call is
 refused, nothing is generated.
 """
 
-from freya.providers.image.comfyui import IMAGE_GENERATE
+# The same capability name as ``IMAGE_GENERATE`` in the image provider.
+# This module does not import that provider: asking for a picture must
+# not load it, and a missing broker must not reach it.
+IMAGE_GENERATE = "image.generate"
 
 
 def request_image(broker, prompt) -> bool:

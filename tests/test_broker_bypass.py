@@ -1,87 +1,103 @@
-"""Image requests and memory reads go through the broker, or they do not run."""
+"""Image requests and memory reads go through the broker, or they do not run.
+
+The runtime checks use Core only, so they run where the foundation
+jobs do: pytest and the store libraries, without the image provider.
+"""
+
+from pathlib import Path
 
 import pytest
 
-from freya.control_plane import build_local_control_plane
+from freya.core.audit import SqliteAuditLog
+from freya.core.capabilities import (
+    CapabilityBroker,
+    CapabilityDefinition,
+    CapabilityRegistry,
+    CapabilityStatus,
+    declare,
+)
 from freya.core.conversation_memory import memories_for_screening
-from freya.image.request import request_image
-from freya.providers.image.comfyui import COMFYUI_PROVIDER, IMAGE_GENERATE
+from freya.core.persistence import ControlStore
+from freya.core.policy import SqlitePolicyEngine
+from freya.image.request import IMAGE_GENERATE, request_image
+
+
+ROOT = Path(__file__).resolve().parents[1] / "src" / "freya"
 
 
 @pytest.fixture
-def plane(tmp_path, fake_ollama):
-    built = build_local_control_plane(tmp_path / "control.db", None)
+def broker(tmp_path):
+    store = ControlStore(tmp_path / "control.db")
+    policy = SqlitePolicyEngine(store)
+    audit = SqliteAuditLog(store, checkpoint_interval=0)
+    audit.start()
+    registry = CapabilityRegistry()
+    built = CapabilityBroker(registry, policy, audit)
+    built.store = store
     yield built
-    built.close()
+    store.close()
 
 
-def audit_rows(plane, capability):
-    return plane.store.execute(
+def allow(broker, name, handler):
+    broker._registry.register(
+        CapabilityDefinition(
+            name=name,
+            description="Test capability.",
+            provider="test-local",
+            handler=handler,
+            declaration=declare(("none", "test fixture, no resource")),
+        )
+    )
+    broker._policy.add_rule("local-owner", name, "allow", "Test allow.")
+
+
+def rows(broker, capability):
+    return broker.store.execute(
         "SELECT kind, outcome FROM audit_event WHERE capability = ? ORDER BY event_id",
         (capability,),
     ).fetchall()
 
 
-def comfyui_can_start(plane):
-    provider = plane.providers.get(COMFYUI_PROVIDER)
-    provider.metadata["can_start"] = True
-    provider.health_handler = lambda: True
-    plane.providers.check_health(COMFYUI_PROVIDER)
-
-
-def test_an_image_request_is_audited_and_the_handler_is_the_only_generator(plane):
-    comfyui_can_start(plane)
+def test_an_image_request_is_audited(broker):
     seen = []
-    plane.register_image_generation(
-        lambda prompt: seen.append(prompt) or {"status": "generated"}
-    )
+    allow(broker, IMAGE_GENERATE, lambda prompt: seen.append(prompt) or {"status": "generated"})
 
-    assert request_image(plane.broker, "a made-up fox") is True
+    assert request_image(broker, "a made-up fox") is True
     assert seen == ["a made-up fox"]
-    assert [row["kind"] for row in audit_rows(plane, IMAGE_GENERATE)] == [
-        "dispatch",
-        "outcome",
-    ]
-    assert audit_rows(plane, IMAGE_GENERATE)[-1]["outcome"] == "succeeded"
+    assert [row["kind"] for row in rows(broker, IMAGE_GENERATE)] == ["dispatch", "outcome"]
+    assert rows(broker, IMAGE_GENERATE)[-1]["outcome"] == "succeeded"
 
 
-def test_a_denied_image_request_does_not_generate(plane, capsys):
-    comfyui_can_start(plane)
+def test_a_denied_image_request_does_not_generate(broker, capsys):
     seen = []
-    plane.register_image_generation(lambda prompt: seen.append(prompt))
-    plane.policy.add_rule("local-owner", IMAGE_GENERATE, "deny", "Test deny.")
+    allow(broker, IMAGE_GENERATE, lambda prompt: seen.append(prompt))
+    broker._policy.add_rule("local-owner", IMAGE_GENERATE, "deny", "Test deny.")
 
-    assert request_image(plane.broker, "a made-up fox") is False
+    assert request_image(broker, "a made-up fox") is False
     assert seen == []
     assert "a made-up fox" not in capsys.readouterr().out
-    assert audit_rows(plane, IMAGE_GENERATE)[-1]["outcome"] == "denied"
+    assert rows(broker, IMAGE_GENERATE)[-1]["outcome"] == "denied"
 
 
-def test_an_unavailable_image_request_does_not_generate(plane, capsys):
+def test_an_unavailable_image_request_does_not_generate(broker):
     seen = []
-    plane.register_image_generation(lambda prompt: seen.append(prompt))
-    provider = plane.providers.get(COMFYUI_PROVIDER)
-    provider.metadata["can_start"] = False
-    provider.health_handler = lambda: False
-    plane.providers.check_health(COMFYUI_PROVIDER)
-    plane.providers.check_health("image-service-local")
+    allow(broker, IMAGE_GENERATE, lambda prompt: seen.append(prompt))
+    broker._registry.set_status(IMAGE_GENERATE, CapabilityStatus.UNAVAILABLE)
 
-    assert request_image(plane.broker, "a made-up fox") is False
+    assert request_image(broker, "a made-up fox") is False
     assert seen == []
-    assert audit_rows(plane, IMAGE_GENERATE)[-1]["outcome"] == "unavailable"
+    assert rows(broker, IMAGE_GENERATE)[-1]["outcome"] == "unavailable"
 
 
-def test_a_failed_image_handler_is_audited_and_not_retried(plane, capsys):
-    comfyui_can_start(plane)
-
+def test_a_failed_image_handler_is_audited(broker, capsys):
     def fail(prompt):
         raise RuntimeError("The image could not be generated.")
 
-    plane.register_image_generation(fail)
+    allow(broker, IMAGE_GENERATE, fail)
 
-    assert request_image(plane.broker, "a made-up fox") is False
+    assert request_image(broker, "a made-up fox") is False
     assert "a made-up fox" not in capsys.readouterr().out
-    assert audit_rows(plane, IMAGE_GENERATE)[-1]["outcome"] == "failed-known"
+    assert rows(broker, IMAGE_GENERATE)[-1]["outcome"] == "failed-known"
 
 
 def test_a_missing_broker_does_not_generate(capsys):
@@ -89,28 +105,26 @@ def test_a_missing_broker_does_not_generate(capsys):
     assert "a made-up fox" not in capsys.readouterr().out
 
 
-def test_screening_reads_memory_through_the_broker(plane):
+def test_screening_reads_memory_through_the_broker(broker):
     seen = []
 
     def recall(query=None, for_reply=False, for_screening=False):
         seen.append(for_screening)
         return [("7", "a made-up fact")]
 
-    plane.register_conversation_recall(recall)
+    allow(broker, "conversation.recall", recall)
 
-    assert memories_for_screening(plane.broker) == [("7", "a made-up fact")]
+    assert memories_for_screening(broker) == [("7", "a made-up fact")]
     assert seen == [True]
-    rows = audit_rows(plane, "conversation.recall")
-    assert [row["kind"] for row in rows] == ["dispatch", "outcome"]
-    assert rows[-1]["outcome"] == "succeeded"
+    recorded = rows(broker, "conversation.recall")
+    assert [row["kind"] for row in recorded] == ["dispatch", "outcome"]
+    assert recorded[-1]["outcome"] == "succeeded"
 
-    plane.policy.add_rule(
-        "local-owner", "conversation.recall", "deny", "Test deny."
-    )
+    broker._policy.add_rule("local-owner", "conversation.recall", "deny", "Test deny.")
     with pytest.raises(RuntimeError, match="could not be read"):
-        memories_for_screening(plane.broker)
+        memories_for_screening(broker)
     assert seen == [True]
-    assert audit_rows(plane, "conversation.recall")[-1]["outcome"] == "denied"
+    assert rows(broker, "conversation.recall")[-1]["outcome"] == "denied"
 
 
 def test_a_missing_broker_does_not_read_memories_for_screening():
@@ -119,9 +133,6 @@ def test_a_missing_broker_does_not_read_memories_for_screening():
 
 
 def test_direct_image_and_memory_bypasses_are_rejected():
-    from pathlib import Path
-
-    root = Path(__file__).resolve().parents[1] / "src" / "freya"
     image_calls = []
     memory_calls = []
     allowed_image = {
@@ -135,12 +146,25 @@ def test_direct_image_and_memory_bypasses_are_rejected():
         "core/memory_commands.py",
         "core/conversation_memory.py",
     }
+    image_name = (
+        ROOT.joinpath("providers/image/comfyui.py")
+        .read_text(encoding="utf-8")
+        .split("IMAGE_GENERATE = ", 1)[1]
+        .splitlines()[0]
+    )
+    request_name = (
+        ROOT.joinpath("image/request.py")
+        .read_text(encoding="utf-8")
+        .split("IMAGE_GENERATE = ", 1)[1]
+        .splitlines()[0]
+    )
+    assert image_name == request_name
 
-    for path in root.rglob("*.py"):
+    for path in ROOT.rglob("*.py"):
         if "evaluation" in path.parts:
             continue
         text = path.read_text(encoding="utf-8")
-        relative = path.relative_to(root).as_posix()
+        relative = path.relative_to(ROOT).as_posix()
 
         if relative not in allowed_image and (
             "image_generator.generate" in text
