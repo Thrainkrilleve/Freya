@@ -18,9 +18,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: python -m pip install pytest
+      # tests/conftest.py imports the live database key. That import needs
+      # the two libraries pyproject.toml already declares. These tests
+      # never open a database, so SQLCipher is not installed here.
+      - run: python -m pip install --disable-pip-version-check "pytest>=8,<10" "cryptography>=44" "argon2-cffi>=23.1.0"
       - run: python -m compileall -q tools/discord_coordinator
-      # tests/conftest.py imports freya, which is not installed here.
       - run: python -m pytest -q tests/test_discord_coordinator.py
         env:
           PYTHONPATH: src
