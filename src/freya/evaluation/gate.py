@@ -9,8 +9,9 @@ unmeasured. The gate reports; it switches nothing on. Approval and
 rollback are the owner's (NEW-CC), built later.
 
 Kinds gated in this version: a change to the tool hint (a prompt
-change) and a change of conversation model (NEW-CF). Skills are added
-with the skill format (NEW-BW, build step 2).
+change) and a change of conversation model (NEW-CF). A skill file is
+validated by ``freya.learning.skill``. ``measurement_request`` records
+that a candidate may be measured; it does not promote the skill.
 
 Run with python -m freya.evaluation.gate; never launched by Freya.
 """
@@ -102,7 +103,9 @@ def load_candidate(data, known_cases: Sequence[str]) -> Candidate:
 
     kind = data.get("kind")
     if kind == KIND_SKILL:
-        raise ValueError("Skills are gated from build step 2 (NEW-BW); not yet.")
+        raise ValueError(
+            "A skill is measured from its file. The gate does not promote it."
+        )
     if kind not in KINDS:
         raise ValueError("Kind is one of: " + ", ".join(KINDS) + ".")
 

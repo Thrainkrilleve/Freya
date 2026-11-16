@@ -1,8 +1,10 @@
 # Design proposal: skills, checks and one gate — how Freya gets better
 
-**Status: draft proposal, written 2026-10-22 at the owner's request. Nothing here is
-built.** It approves no ADR, adopts no pending amendment, and assigns no requirement
-ID. Requirements in this document carry provisional labels **NEW-BW to NEW-CG**
+**Status: draft proposal, written 2026-10-22 at the owner's request. Not
+adopted.** The promotion gate and the skill file, loader, and matcher are in
+the tree. Lookup runs only when `FREYA_LEARNING=1`. The checks, the episode
+log, approval, and the nightly draft are not built. It approves no ADR,
+adopts no pending amendment, and assigns no requirement ID. Requirements in this document carry provisional labels **NEW-BW to NEW-CG**
 (`docs/labels.md`); they get final IDs only at reconciliation. Baseline references
 (CTX-, MEM-, SEC-, CAP-, ARCH-) are to *Freya Foundation v1.1*, which remains
 authoritative.
@@ -302,9 +304,10 @@ scenarios of NEW-BL, all folded into the gate.
 
 1. **NEW-CB first**, the gate, because nothing else can be measured without it. The
    regression suite is the existing workflow scenarios plus NEW-AY's reuse scenario.
-2. **NEW-BW**, with three skills the owner writes by hand: reading a file the owner
-   opened and answering from it; reporting this PC's temperatures; one of the
-   owner's own recurring tasks. Lookup behind `FREYA_LEARNING=1`.
+2. The skill file, loader, and matcher, with three empty templates the owner
+   fills in: reading a file the owner opened and answering from it; reporting
+   this PC's temperatures; one of the owner's own recurring tasks. Lookup
+   behind `FREYA_LEARNING=1`. The loader is in the tree. The methods are not.
 3. **NEW-BX**, the checks module and the verifier hook, once Phase 0's turn engine
    has merged. Its first scenario is NEW-BL's *catch*, now a gate case.
 4. **NEW-BY and NEW-BZ**, the episode log, signals and demotion; the audit test

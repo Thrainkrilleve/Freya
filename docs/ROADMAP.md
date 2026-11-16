@@ -109,11 +109,10 @@ runs before the assistant is built, and the ledger stays outside `data/`.
 
 ### 2. Skill files, still off
 
-- **Goal:** a versioned skill file, a loader, a matcher, and three skills Thrain writes. Lookup only when `FREYA_LEARNING=1`.
-- **Why:** the promotion gate exists and has nothing to promote. The design names this as the next build step.
-- **Depends:** the gate. Thrain writes the three skills. No new permission.
-- **Size:** M
-- **Where:** [skill-learning.md](design/skill-learning.md).
+Done as a loader. [skill-learning.md](design/skill-learning.md). Three empty
+templates wait for Thrain. Lookup runs only when `FREYA_LEARNING=1` and
+matches an approved skill's example exactly. A template is not matched
+and is not promoted.
 
 ### 3. Image and memory through the broker
 
