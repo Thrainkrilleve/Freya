@@ -5,12 +5,14 @@ import urllib.request
 import threading
 
 from freya.core.assistant import FreyaAssistant
+from freya.core.conversation_memory import memories_for_screening
 from freya.memory.deletion_ledger import ProtectionSetupError, StorageQuarantined
 from freya.memory.protection import ensure_memory_protection
 from freya.core.model_runtime import ROLE_BACKGROUND
 from freya.core.model_runtime import ModelRuntimeUnavailable
 from freya.gpu.resource_manager import GPUResourceManager
 from freya.image.image_generator import FreyaImageGenerator
+from freya.image.request import request_image
 from freya.control_plane import build_local_control_plane
 from freya.delegation.service import build_cloud_delegation, build_turn_delegation
 from freya.paths import data_dir
@@ -372,6 +374,7 @@ def handle_tool_request(
     image_generator,
     gpu_manager,
     user_input,
+    broker=None,
 ):
     tool_request = tool_router.route(
         user_input
@@ -381,11 +384,7 @@ def handle_tool_request(
         return False
 
     if tool_request.tool == "image":
-        run_image_generation(
-            image_generator,
-            gpu_manager,
-            tool_request.prompt,
-        )
+        request_image(broker, tool_request.prompt)
         return True
     return False
 
@@ -399,6 +398,7 @@ def handle_normal_input(
     user_input,
     source="typed",
     voice_gate=None,
+    broker=None,
 ):
     # A spoken turn is authorized here, before any tool. The gate
     # records the decision and does not run the tool itself. Typed
@@ -422,6 +422,7 @@ def handle_normal_input(
         image_generator,
         gpu_manager,
         user_input,
+        broker,
     )
 
     if tool_was_used:
@@ -452,6 +453,7 @@ def run_conversation_mode(
     image_generator,
     gpu_manager,
     voice_gate=None,
+    broker=None,
 ):
     print()
     print("Conversation mode started.")
@@ -533,6 +535,7 @@ def run_conversation_mode(
             transcript,
             source="voice",
             voice_gate=voice_gate,
+            broker=broker,
         )
 
         # Important for v1: do not reopen the microphone
@@ -622,10 +625,7 @@ def main(window_only=False):
     try:
         cloud = build_cloud_delegation(
             control_plane,
-            lambda: [
-                (row[0], row[3])
-                for row in freya.memory.get_all_memories()
-            ],
+            lambda: memories_for_screening(control_plane.broker),
             publish=EVENTS.publish,
         )
     except Exception as exc:
@@ -758,6 +758,7 @@ def main(window_only=False):
                     request,
                     source="voice",
                     voice_gate=voice_gate,
+                    broker=control_plane.broker,
                 )
             print("You: ", end="", flush=True)
 
@@ -826,6 +827,7 @@ def main(window_only=False):
                 gpu_manager,
                 text,
                 source="window",
+                broker=control_plane.broker,
             )
             publish_status()
             print("You: ", end="", flush=True)
@@ -838,11 +840,7 @@ def main(window_only=False):
                 text=f"Generate an image: {prompt}",
                 source="window",
             )
-            run_image_generation(
-                image_generator,
-                gpu_manager,
-                prompt,
-            )
+            request_image(control_plane.broker, prompt)
             publish_status()
             print("You: ", end="", flush=True)
 
@@ -929,9 +927,8 @@ def main(window_only=False):
                     settings=settings,
                     window=window,
                     normalize=normalize_command,
-                    run_image=lambda prompt: run_image_generation(
-                        image_generator,
-                        gpu_manager,
+                    run_image=lambda prompt: request_image(
+                        control_plane.broker,
                         prompt,
                     ),
                     publish_status=publish_status,
@@ -1016,9 +1013,8 @@ def main(window_only=False):
         settings=settings,
         window=window,
         normalize=normalize_command,
-        run_image=lambda prompt: run_image_generation(
-            image_generator,
-            gpu_manager,
+        run_image=lambda prompt: request_image(
+            control_plane.broker,
             prompt,
         ),
         publish_status=publish_status,
@@ -1062,6 +1058,7 @@ def main(window_only=False):
                         image_generator,
                         gpu_manager,
                         voice_gate,
+                        control_plane.broker,
                     )
 
                 except Exception as exc:
@@ -1120,6 +1117,7 @@ def main(window_only=False):
                     transcript,
                     source="voice",
                     voice_gate=voice_gate,
+                    broker=control_plane.broker,
                 )
 
                 continue
@@ -1170,6 +1168,7 @@ def main(window_only=False):
                     transcript,
                     source="voice",
                     voice_gate=voice_gate,
+                    broker=control_plane.broker,
                 )
 
                 continue
@@ -1235,6 +1234,7 @@ def main(window_only=False):
                     transcript,
                     source="voice",
                     voice_gate=voice_gate,
+                    broker=control_plane.broker,
                 )
 
                 continue
@@ -1246,6 +1246,7 @@ def main(window_only=False):
                 image_generator,
                 gpu_manager,
                 user_input,
+                broker=control_plane.broker,
             )
 
     except KeyboardInterrupt:

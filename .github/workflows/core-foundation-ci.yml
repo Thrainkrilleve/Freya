@@ -51,6 +51,7 @@ jobs:
           tests/test_live_encryption.py
           tests/test_key_rotation.py
           tests/test_skills.py
+          tests/test_broker_bypass.py
 
   core-static-analysis:
     name: Core static analysis

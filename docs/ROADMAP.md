@@ -116,12 +116,17 @@ and is not promoted.
 
 ### 3. Image and memory through the broker
 
+Done. An image request and a memory read for a reply or for screening go
+through the existing broker capabilities. The handler is the only code
+that talks to the image server. A missing broker or a refusal reads
+nothing and generates nothing. Owner memory commands stay direct.
+
 - **Goal:** image generation and memory recall use the same broker path voice already uses.
 - **Why:** a path around the broker is not audited and not deny-by-default.
 - **Depends:** nothing new. Do not add a write tool in the same change.
 - **Size:** M
 - **Where:** [ADR-002](adr/002-capability-first-integration.md),
-  `src/freya/providers/image/comfyui.py`, `src/freya/memory/`.
+  `src/freya/image/request.py`, `src/freya/core/conversation_memory.py`.
 
 ### 4. Sandbox probes, capability stays off
 
