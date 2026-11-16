@@ -163,7 +163,19 @@ it refuses to start without a verified backup on another drive. Removing
 the last unlock is refused. A rotation that stops halfway is resumed by
 running the same command again, or put back with `--rollback`.
 
+A Windows first run wraps the data key with DPAPI and a recovery key.
+It does not ask for a passphrase. Add one later, from a console. The
+passphrase is typed twice, must be at least 12 characters, and is never
+taken from an argument or the environment. The stretch stays 256 MiB,
+3 iterations, parallelism 4. If a passphrase wrap is already there, the
+command refuses and points at rotate-passphrase. `FREYA_REQUIRE_PASSPHRASE=1`
+makes an unlock ask for that passphrase even when DPAPI is present.
+Unset, DPAPI still opens the databases. A wrong passphrase does not fall
+back to DPAPI.
+
 ```text
+python -m freya.storage.encrypt --with-passphrase
+python -m freya.storage.keys add-passphrase
 python -m freya.storage.keys status
 python -m freya.storage.keys rotate-passphrase
 python -m freya.storage.keys rotate-recovery

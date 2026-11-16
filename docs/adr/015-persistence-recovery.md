@@ -54,6 +54,12 @@ acceptance test is passed by it. Baseline: *Freya Foundation v1.1*, section 22.
   them. A wrap below that floor, or above the reader's ceiling (1 GiB, 8
   iterations, parallelism 8), is refused before the stretch runs. On the
   Linux host that timed the scratch drill, one stretch took about 0.25 s.
+  A new passphrase is at least 12 characters. `python -m freya.storage.keys
+  add-passphrase` adds that wrap beside an existing OS wrap. It refuses
+  when one already exists. `FREYA_REQUIRE_PASSPHRASE` must be exactly `1`
+  before an unlock demands the passphrase while the OS keystore is present.
+  Unset, the OS wrap still opens the databases. A failed passphrase does
+  not try the next wrap.
 - A 256-bit recovery key is created with the data key, shown once on a
   terminal so it can be written down, and unwraps that data key on any OS.
   It is not logged and it is not stored in plaintext. Until it has been

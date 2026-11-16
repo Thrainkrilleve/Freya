@@ -396,6 +396,25 @@ def ensure_unlocked(
 
     if path.is_file():
         bundle = _read_bundle(path)
+        environ = os.environ if environ is None else environ
+
+        if (
+            environ.get("FREYA_REQUIRE_PASSPHRASE") == "1"
+            and recovery_key is None
+        ):
+            from freya.storage.crypto import METHOD_PASSPHRASE
+
+            if not any(wrap.method == METHOD_PASSPHRASE for wrap in bundle.wraps):
+                raise StoreLocked("A passphrase is required. Nothing was opened.")
+
+            if passphrase is None:
+                if not interactive:
+                    raise StoreLocked("A passphrase is required. Nothing was opened.")
+
+                try:
+                    passphrase = prompt_passphrase(label="Database passphrase")
+                except BackupRefused as exc:
+                    raise StoreLocked(str(exc)) from exc
 
         try:
             dek = unwrap_data_key(

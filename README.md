@@ -42,3 +42,19 @@ when that path is inside the memory database's folder. A fact forgotten
 after a backup stays forgotten when that backup is restored, because the
 ledger is replayed and is not rolled backwards. Other copies can still
 bring a fact back. That is not full MEM-008 compliance.
+
+## Database key
+
+On Windows the first run wraps the database key with DPAPI and creates a
+recovery key. It does not ask for a passphrase. From a console:
+
+    python -m freya.storage.encrypt --show-recovery-key
+    python -m freya.storage.keys add-passphrase
+
+`add-passphrase` types the passphrase twice. It is at least 12 characters,
+and it is not read from an argument or the environment. A wrap that is
+already there is left in place; replace it with `rotate-passphrase`.
+`python -m freya.storage.encrypt --with-passphrase` sets one only when
+the key is being created. `FREYA_REQUIRE_PASSPHRASE=1` asks for the
+passphrase on unlock even when DPAPI is present. Leave it unset and DPAPI
+still opens the databases.

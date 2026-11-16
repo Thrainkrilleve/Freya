@@ -83,6 +83,8 @@ ARGON2_TIME_MAX = 8
 ARGON2_PARALLELISM_MAX = 8
 ARGON2_SALT_LEN = 16
 PASSPHRASE_PARAMS = (ARGON2_MEMORY_KIB, ARGON2_TIME_COST, ARGON2_PARALLELISM)
+# New passphrases only. An existing wrap is opened with whatever it was given.
+MIN_PASSPHRASE_LENGTH = 12
 
 # Exact value "1" opts in. Anything else, including unset, does not.
 # The kernel keyring is session-only and is never selected on its own.
@@ -191,6 +193,14 @@ def _check_passphrase(passphrase: str) -> None:
 
     if len(passphrase) > 1024:
         raise BackupRefused("That passphrase is too long.")
+
+
+def accept_new_passphrase(passphrase: str) -> None:
+    """Refuse a new passphrase that is empty, too short, or too long."""
+    _check_passphrase(passphrase)
+
+    if len(passphrase) < MIN_PASSPHRASE_LENGTH:
+        raise BackupRefused("That passphrase is too short.")
 
 
 def derive_passphrase_kek(passphrase: str, salt: bytes, params: Tuple[int, int, int]) -> bytes:
@@ -1323,6 +1333,9 @@ def new_data_key(custody, passphrase):
         raise BackupRefused(
             "No keystore is available. A passphrase is required. Nothing was written."
         )
+
+    if passphrase is not None:
+        accept_new_passphrase(passphrase)
 
     key_id = os.urandom(KEY_ID_LEN)
     dek = os.urandom(KEY_LEN)
