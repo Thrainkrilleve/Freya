@@ -215,12 +215,14 @@ def guest_administrator_can_attach_drives(distribution=None, run=subprocess.run)
     return ProbeResult(8, "Administrator in the WSL guest attaching Windows drives", attached or "REFUSED" in said, note)
 
 
-def run_probes(sandbox, distribution=None, run=subprocess.run) -> list:
+def run_probes(sandbox, distribution=None, run=subprocess.run, include_drive_attach=True) -> list:
     results = []
     for probe in PROBES:
         try:
             results.append(probe(sandbox))
         except Exception as exc:
             results.append(ProbeResult(len(results) + 1, getattr(probe, "__name__", "probe"), False, f"error: {exc}"[:300]))
-    results.append(guest_administrator_can_attach_drives(distribution, run))
+    # Attaching a drive changes the guest. The survey command does not.
+    if include_drive_attach:
+        results.append(guest_administrator_can_attach_drives(distribution, run))
     return results

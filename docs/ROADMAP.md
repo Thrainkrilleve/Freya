@@ -130,6 +130,19 @@ nothing and generates nothing. Owner memory commands stay direct.
 
 ### 4. Sandbox probes, capability stays off
 
+Done as a survey. From the repository root, with Freya's virtual environment:
+
+```
+python -m freya.sandbox probe
+```
+
+Needs Python 3.12 and this repository's environment. WSL, Docker, and an
+administrator are not required. The command does not install them and does
+not change a system setting. It writes `docs/results/sandbox-probes.md`
+(uncommitted; the empty shape is
+[sandbox-probes.template.md](results/sandbox-probes.template.md)). The
+verified tier in that file stays T0. `code.run` stays unregistered.
+
 - **Goal:** Thrain runs the sandbox probes on this PC and the result is recorded. `code.run` stays unregistered either way.
 - **Why:** ADR-014 is accepted and unvalidated. Windows 11 Home has no Hyper-V. The WSL2 profile holds mistakes, not a determined attack.
 - **Depends:** the owner runs the probes. A failed probe does not enable the capability.

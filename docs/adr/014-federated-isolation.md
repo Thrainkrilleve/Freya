@@ -139,7 +139,10 @@ unregistered:
   `freya.sandbox.probes` covers outside network, loopback, Windows drives, a
   fresh run, resource limits, cut output and Freya's variables. Probe 8 records
   whether an administrator in the WSL guest can attach the Windows drives. The
-  owner has not run those probes on the PC.
+  owner has not run those probes on the PC. `python -m freya.sandbox probe`
+  records which facilities are visible and writes a results file that holds
+  none of the machine's own names. It does not validate a tier, and `code.run`
+  stays unregistered. The owner has not run that survey on the PC.
 
 Still to write and run, on the node, before that node may report the tier:
 
