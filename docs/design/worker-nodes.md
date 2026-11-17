@@ -137,12 +137,12 @@ PHY-006 bars actuation in the alpha.
 
 | Part | Where | What it does |
 |---|---|---|
-| Profile program | `freya/federation/profile.py` | Standard library only, imports nothing from Freya, opens no connection. Copied onto a spare machine and run there, it prints OS, processor, memory, NVIDIA cards and free disk (no host name, serial or MAC), and with `--save` writes an offer with a random eight-digit join code. |
-| Suggestions | `freya/federation/roles.py` | From a profile, the roles a machine could fill and why, with a rough model size that fits its card. Marks which roles may be enrolled now. |
+| Profile program | `freya/federation/profile.py` | Standard library only, imports nothing from Freya, opens no connection. Copied onto a spare machine and run there, it prints OS, processor, memory, graphics cards and free disk (no host name, serial or MAC), and with `--save` writes an offer with a random eight-digit join code. Cards are measured AMD first, then Intel Arc, then NVIDIA (profile version 2). Each card has its vendor, name, VRAM when a tool or the driver reported it, and any runtime that was cheap to see (ROCm/HIP, Vulkan, SYCL/oneAPI, CUDA). A version 1 offer, which only listed NVIDIA cards, still loads. |
+| Suggestions | `freya/federation/roles.py` | From a profile, the roles a machine could fill and why, with a rough model size that fits its graphics memory, whichever vendor reported it. AMD (Ollama's ROCm or Vulkan backend) and Intel Arc (Ollama's Vulkan backend, and oneAPI/SYCL when that is installed) count the same as NVIDIA. Marks which roles may be enrolled now. |
 | Addresses and tailnet | `freya/federation/network.py` | Classifies an address as loopback, home, tailnet or public; a worker must be home or tailnet. Reads `tailscale status --json` (only reads) to list the owner's tailnet machines as suggestions. |
 | Registry | `freya/federation/registry.py` | Offers, the owner's approval with the code, decline, renew, revoke, `may_assign`, bounded history, all in `data/federation_nodes.json` (listed in storage placement and in the closing backup). |
 | Owner commands | `python -m freya.federation` | `profile`, `add [--address]`, `tailnet`, `nodes`, `approve`, `decline`, `renew`, `revoke`. `approve` asks for the code at the keyboard and lists the sandbox-host conditions when that role is asked for. |
-| Tests | `tests/test_federation.py` | Profile parsing, suggestions, every refusal in NEW-DC to NEW-DG, persistence, an unreadable file, the commands, and that Core does not import the package. |
+| Tests | `tests/test_federation.py` | Profile parsing for AMD, Intel Arc, NVIDIA and mixed cards, missing tools, timeouts, a version 1 offer, and that no host name, serial or MAC is recorded; suggestions; every refusal in NEW-DC to NEW-DG; persistence; an unreadable file; the commands; and that Core does not import the package. |
 
 Not built: the worker program, the certificate authority, the worker channel,
 remote providers, discovery on the network, a window tab, broker capabilities for
@@ -167,14 +167,22 @@ and the kill test.
    tailnet; Freya lists it as an offer in the window ("Freya found a machine"). Still
    only an offer.
 6. **Kill test and enabling**, by the owner, after the tests in NEW-DM pass.
-7. **Split inference** for models larger than the 4090 holds, using the runtime
-   chosen by the larger-model work (llama.cpp RPC or mesh-llm, measured first),
-   inside the worker channel.
+7. **Split inference** for models larger than the main PC's card holds. The main
+   PC (COMP) is a Ryzen 7 9800X3D with a Radeon RX 9070 XT (16 GB). The Ubuntu
+   server has a Radeon RX 7800 XT (16 GB) and an AMD Instinct MI50 (gfx906;
+   32 GB of HBM2 is typical, and the profile reports the memory it reads
+   rather than assuming that figure). Candidates to measure, inside the worker
+   channel: llama.cpp RPC, mesh-llm, and iSharded. Thrain already runs a
+   two-node iSharded split (COMP's 9070 XT and the server's 7800 XT) at about
+   15–18 tokens a second on a 27B Q4_K_M. Measure before choosing a runtime.
 
-## 6. Owner decisions (2026-11-10)
+## 6. Owner decisions
+
+W1 to W3 were decided on 2026-11-10. W4 was decided on 2026-11-16.
 
 | # | Question | Decision |
 |---|---|---|
 | W1 | What may go to a worker? | Background work to start (with embeddings); Freya's replies stay on the main PC. |
 | W2 | Tailscale under the worker channel? | Yes, built in early ("we will need it at some point"), underneath mutual TLS, never instead of it. Installing Tailscale on each machine is an owner action. |
 | W3 | May laptops run generated code? | Yes: the exception in section 2, with its conditions. |
+| W4 | Which graphics vendors count? (2026-11-16) | AMD first, then Intel Arc, then NVIDIA. A machine is not treated as having no usable GPU only because it has no NVIDIA card. |

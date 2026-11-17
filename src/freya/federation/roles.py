@@ -100,15 +100,76 @@ def model_size_class(gpu_gb):
     return int(usable / GB_PER_BILLION_AT_4BIT)
 
 
+def _memory_bytes(gpu):
+    memory = gpu.get("memory_bytes") if isinstance(gpu, dict) else None
+    if isinstance(memory, bool) or not isinstance(memory, (int, float)):
+        return 0
+    if memory <= 0:
+        return 0
+    return int(memory)
+
+
+def _vendor_label(gpu):
+    vendor = gpu.get("vendor")
+    name = (gpu.get("name") or "").lower()
+    if vendor == "amd":
+        return "AMD"
+    if vendor == "intel":
+        return "Intel Arc" if "arc" in name else "Intel"
+    if vendor == "nvidia":
+        return "NVIDIA"
+    return "graphics"
+
+
+def _backend_note(gpu):
+    """
+    Which local backends can run this card. AMD and Intel Arc are
+    first-class: lacking CUDA is not the same as lacking a GPU.
+    """
+    vendor = gpu.get("vendor")
+    runtimes = set(gpu.get("runtimes") or [])
+    if vendor == "amd":
+        if "rocm" in runtimes and "vulkan" in runtimes:
+            return " Ollama can run it through its ROCm or Vulkan backend."
+        if "rocm" in runtimes:
+            return " Ollama can run it through its ROCm backend."
+        if "vulkan" in runtimes:
+            return " Ollama can run it through its Vulkan backend."
+        return " Ollama runs AMD cards through its ROCm or Vulkan backend."
+    if vendor == "intel":
+        if "vulkan" in runtimes and "sycl" in runtimes:
+            return (
+                " Ollama can run it through its Vulkan backend, and "
+                "oneAPI/SYCL is installed."
+            )
+        if "vulkan" in runtimes:
+            return " Ollama can run Intel Arc through its Vulkan backend."
+        if "sycl" in runtimes:
+            return (
+                " oneAPI/SYCL is installed; Ollama's Vulkan backend "
+                "is the one that runs Intel Arc."
+            )
+        return " Ollama's Vulkan backend is the one that runs Intel Arc."
+    if vendor == "nvidia" and "cuda" in runtimes:
+        return " Ollama can run it through its CUDA backend."
+    return ""
+
+
 def suggest_roles(profile) -> List[Suggestion]:
     ram_gb = (profile.get("ram_bytes") or 0) / GIB
-    gpus = [
-        gpu for gpu in profile.get("gpus") or []
-        if gpu.get("vendor") == "nvidia"
-    ]
-    best_gpu_gb = max(
-        (gpu["memory_bytes"] / GIB for gpu in gpus), default=0.0
+    gpus = [gpu for gpu in profile.get("gpus") or [] if isinstance(gpu, dict)]
+    sized = [gpu for gpu in gpus if _memory_bytes(gpu)]
+    # The same amount of memory prefers AMD, then Intel, then NVIDIA.
+    best = max(
+        sized,
+        key=lambda gpu: (
+            _memory_bytes(gpu),
+            -{"amd": 0, "intel": 1, "nvidia": 2}.get(gpu.get("vendor"), 9),
+        ),
+        default=None,
     )
+    best_gpu_gb = (_memory_bytes(best) / GIB) if best else 0.0
+    unmeasured = [gpu for gpu in gpus if not _memory_bytes(gpu) and gpu.get("name")]
     architecture = ((profile.get("os") or {}).get("architecture") or "").lower()
     x86 = architecture in ("amd64", "x86_64", "x64")
 
@@ -128,30 +189,46 @@ def suggest_roles(profile) -> List[Suggestion]:
             )
         return suggestions
 
-    if best_gpu_gb >= MIN_GPU_GB_FOR_MODELS:
+    if best is not None and best_gpu_gb >= MIN_GPU_GB_FOR_MODELS:
         size = model_size_class(best_gpu_gb)
+        several = ""
+        if len(sized) > 1:
+            total_gb = sum(_memory_bytes(gpu) for gpu in sized) / GIB
+            several = (
+                f" {len(sized)} cards are fitted, {total_gb:.0f} GB altogether."
+            )
         add(
             "model-worker",
-            f"A {best_gpu_gb:.0f} GB NVIDIA card fits models up to about "
-            f"{size}B parameters at 4-bit, such as a small worker model "
-            "or embeddings, leaving the main PC's card for Freya's replies.",
+            f"A {best_gpu_gb:.0f} GB {_vendor_label(best)} card fits models "
+            f"up to about {size}B parameters at 4-bit, such as a small "
+            f"worker model or embeddings, leaving the main PC's card for "
+            f"Freya's replies.{several}{_backend_note(best)}",
         )
 
-    if best_gpu_gb >= MIN_GPU_GB_FOR_SPLIT:
+    if best is not None and best_gpu_gb >= MIN_GPU_GB_FOR_SPLIT:
         add(
             "split-inference",
-            f"Its {best_gpu_gb:.0f} GB card could hold part of a model too "
-            "big for the main PC alone. Over home Ethernet that is slower "
-            "per word; it is for size, not speed.",
+            f"Its {best_gpu_gb:.0f} GB {_vendor_label(best)} card could hold "
+            "part of a model too big for the main PC alone. Over home "
+            "Ethernet that is slower per word; it is for size, not speed.",
         )
 
     if best_gpu_gb < MIN_GPU_GB_FOR_MODELS and ram_gb >= MIN_RAM_GB_FOR_CPU_MODELS:
-        add(
-            "cpu-model-worker",
-            f"No usable graphics card, but {ram_gb:.0f} GB of memory runs "
-            "models of about 3 to 4B parameters on the processor, a few "
-            "words a second.",
-        )
+        if best is None and unmeasured:
+            add(
+                "cpu-model-worker",
+                f"{unmeasured[0]['name']} is fitted but its memory was not "
+                f"measured, so no model size was guessed. {ram_gb:.0f} GB of "
+                "memory can run models of about 3 to 4B parameters on the "
+                "processor, a few words a second.",
+            )
+        else:
+            add(
+                "cpu-model-worker",
+                f"No usable graphics card, but {ram_gb:.0f} GB of memory runs "
+                "models of about 3 to 4B parameters on the processor, a few "
+                "words a second.",
+            )
 
     if ram_gb >= MIN_RAM_GB_FOR_SANDBOX and x86:
         add(
