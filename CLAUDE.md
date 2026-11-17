@@ -192,9 +192,13 @@ comparing and ranking memories, summaries, media summaries). Both use `MODEL` un
 `FREYA_BACKGROUND_MODEL` names another installed Ollama model. Only then are
 `llm.background.chat` and `llm.background.chat_stream` registered and allowed (policy
 seed `alpha-model-background`), so each model's use is separately audited, and both
-models are checked for health and warmed. Cloud routes are separate: sending anything
-to an outside model is escalation under ESC-001 to ESC-006 and goes only through the
-dispatcher described below.
+models are checked for health and warmed. Background requests, whichever model
+serves them, are sent with thinking off (`think` false) unless
+`FREYA_BACKGROUND_THINK` is `on`, `low`, `medium`, `high`, or `xhigh`
+(`config.background_think`; any other value stays off) or the caller passes
+`think`. Freya's own replies are unchanged (`REPLY_THINKING`). Cloud routes are
+separate: sending anything to an outside model is escalation under ESC-001 to
+ESC-006 and goes only through the dispatcher described below.
 
 Usage ledger: `freya.core.usage.UsageLedger` records what each route (one way of
 reaching one model) has used and decides whether more fits: go, ask the owner, wait

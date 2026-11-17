@@ -42,6 +42,11 @@ def _with_tag(model):
     return model if ":" in model else f"{model}:latest"
 
 
+def _chain(first, rest):
+    yield first
+    yield from rest
+
+
 def runs_elsewhere(model) -> bool:
     """
     Whether a model served by the local Ollama program actually runs
@@ -217,21 +222,72 @@ def _chat_handlers(model, context_tokens=None):
             },
         }
 
+    def without_think(options):
+        return {
+            key: value
+            for key, value in options.items()
+            if key != "think"
+        }
+
+    def refused_for_thinking(exc):
+        # Some Ollama versions answer 400 when `think` is sent to a
+        # model that has no thinking capability. The wording is the
+        # server's and includes "think". Any other error is left as it
+        # is, and the request is not sent a third time.
+        return "think" in str(exc).lower()
+
+    def complete(messages, options):
+        try:
+            return ollama.chat(
+                model=model,
+                messages=messages,
+                **options,
+            )
+        except ollama_library.ResponseError as exc:
+            if "think" not in options or not refused_for_thinking(exc):
+                raise
+            return ollama.chat(
+                model=model,
+                messages=messages,
+                **without_think(options),
+            )
+
+    def open_stream(messages, options):
+        """
+        Start a streamed chat and read its first chunk.
+
+        A refusal of `think` arrives when that first chunk is read,
+        not when the call returns. Only that refusal is tried once
+        more, without the field. A failure after a chunk has arrived
+        is raised to the caller.
+        """
+
+        def read(active):
+            iterator = iter(ollama.chat(
+                model=model,
+                messages=messages,
+                stream=True,
+                **active,
+            ))
+            try:
+                first = next(iterator)
+            except StopIteration:
+                return iter(())
+            return _chain(first, iterator)
+
+        try:
+            return read(options)
+        except ollama_library.ResponseError as exc:
+            if "think" not in options or not refused_for_thinking(exc):
+                raise
+            return read(without_think(options))
+
     def chat(messages, **options):
-        response = ollama.chat(
-            model=model,
-            messages=messages,
-            **sized(options),
-        )
+        response = complete(messages, sized(options))
         return response["message"]["content"]
 
     def chat_stream(messages, **options):
-        stream = ollama.chat(
-            model=model,
-            messages=messages,
-            stream=True,
-            **sized(options),
-        )
+        stream = open_stream(messages, sized(options))
 
         # Text arrives as str chunks. When the model asks for tools
         # instead, that request arrives as one dict.
