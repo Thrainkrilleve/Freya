@@ -194,7 +194,9 @@ def test_rerank_prompt_keeps_caller_text_after_the_instructions(plane, fake_olla
         + "\n"
     )
     assert fake_ollama.calls[0][4] == {
-        "format": "json", "options": {"num_ctx": 16384},
+        "format": "json",
+        "options": {"num_ctx": 16384},
+        "think": False,
     }
 
     fake_ollama.reply = '{"remember": false}'

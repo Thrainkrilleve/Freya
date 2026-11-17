@@ -13,6 +13,29 @@ EMBEDDING_MODEL = "nomic-embed-text"
 # until the owner points this role at another installed model.
 BACKGROUND_MODEL = os.environ.get("FREYA_BACKGROUND_MODEL") or MODEL
 
+# Thinking for that unseen work. A thinking model leaves thinking on
+# unless the request turns it off, and several of these calls then
+# take many seconds each instead of a short answer. Off unless
+# FREYA_BACKGROUND_THINK names otherwise. Accepted words are the same
+# as the evaluation command's --think: off, on, low, medium, high,
+# and xhigh. off is sent as false, on as true, and a level as that
+# word. Anything else stays off. Freya's own replies are not affected.
+_BACKGROUND_THINK_LEVELS = ("low", "medium", "high", "xhigh")
+
+
+def background_think():
+    """The `think` value for one background-role model request."""
+    word = (os.environ.get("FREYA_BACKGROUND_THINK") or "off").strip().lower()
+
+    if word == "on":
+        return True
+
+    if word in _BACKGROUND_THINK_LEVELS:
+        return word
+
+    return False
+
+
 # Context capacity is an explicit per-request model setting. These do
 # not alter Ollama's system-wide settings or the owner's configuration.
 CONTEXT_WINDOW_TOKENS = int(os.environ.get("FREYA_CONTEXT_WINDOW_TOKENS", "16384"))

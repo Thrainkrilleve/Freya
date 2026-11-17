@@ -105,3 +105,9 @@ def fake_ollama(monkeypatch):
 def reset_model_runtime():
     yield
     configure_model_runtime(None)
+
+
+@pytest.fixture(autouse=True)
+def _background_thinking_off(monkeypatch):
+    """Tests see the default: background thinking stays off."""
+    monkeypatch.delenv("FREYA_BACKGROUND_THINK", raising=False)

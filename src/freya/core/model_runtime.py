@@ -1,5 +1,7 @@
 from typing import Callable, Iterator, List, Optional
 
+from freya.config import background_think
+
 
 LLM_CHAT = "llm.chat"
 LLM_CHAT_STREAM = "llm.chat_stream"
@@ -53,8 +55,29 @@ class ModelRuntime:
             raise ValueError(f"Unknown model role: {role!r}")
         return self._routes[role]
 
+    def _with_role_options(self, role, options):
+        """
+        Turn thinking off for background work unless the caller set it.
+
+        That work is unseen and runs several times a turn: deciding
+        what to remember, comparing and ranking memories, summaries,
+        and classification. A thinking model's own default spends
+        each of those calls on its reasoning. A value already in
+        `options` is the caller's, including one that turns thinking
+        back on. Replies name no setting, so the model's default
+        still applies to them.
+        """
+        if role != ROLE_BACKGROUND or "think" in options:
+            return options
+
+        return {**options, "think": background_think()}
+
     def chat(self, messages, role=ROLE_CONVERSATION, **options) -> str:
-        return self._invoke(self._route(role)[0], messages, **options)
+        return self._invoke(
+            self._route(role)[0],
+            messages,
+            **self._with_role_options(role, options),
+        )
 
     def chat_stream(
         self,
@@ -62,7 +85,11 @@ class ModelRuntime:
         role=ROLE_CONVERSATION,
         **options,
     ) -> Iterator[str]:
-        chunks = self._invoke(self._route(role)[1], messages, **options)
+        chunks = self._invoke(
+            self._route(role)[1],
+            messages,
+            **self._with_role_options(role, options),
+        )
 
         try:
             yield from chunks

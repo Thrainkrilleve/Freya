@@ -128,9 +128,35 @@ def _normalize_key(memory_key):
     return memory_key
 
 
+# A whole reply wrapped in one markdown fence. The language tag, when
+# present, is a single token. Prose before or after the fence does not
+# match, so a JSON value sitting inside other text is still refused.
+_JSON_FENCE = re.compile(
+    r"^```[A-Za-z0-9_-]*[ \t]*\r?\n(.*)\r?\n```[ \t]*$",
+    re.DOTALL,
+)
+
+
+def _model_json(result):
+    """
+    Read one JSON value from a background model's reply.
+
+    With thinking off and JSON format requested, a thinking model can
+    still wrap the value in a markdown fence. Only a fence around the
+    whole reply is removed. The value itself is parsed as strictly as
+    before.
+    """
+    if isinstance(result, str):
+        fenced = _JSON_FENCE.fullmatch(result.strip())
+        if fenced:
+            result = fenced.group(1).strip()
+
+    return json.loads(result)
+
+
 def _parse_memory_result(result):
     try:
-        data = json.loads(result)
+        data = _model_json(result)
     except json.JSONDecodeError:
         return None
 
@@ -518,7 +544,7 @@ Content: {memory_b["content"]}
     ).strip()
 
     try:
-        data = json.loads(
+        data = _model_json(
             result
         )
     except json.JSONDecodeError:
@@ -687,7 +713,7 @@ User message:
     ).strip()
 
     try:
-        data = json.loads(result)
+        data = _model_json(result)
     except json.JSONDecodeError:
         return {
             "relevant_ids": [],
