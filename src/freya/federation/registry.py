@@ -31,6 +31,7 @@ from pathlib import Path
 from typing import Dict, List, Optional
 
 from freya.federation.network import classify_address, worker_address_allowed
+from freya.federation.profile import RUNTIME_NAMES
 from freya.federation.roles import (
     ROLES,
     ROLES_ALLOWED_NOW,
@@ -103,11 +104,31 @@ def _number(value, minimum=0, maximum=2 ** 62):
     return value
 
 
+def _clean_runtimes(value):
+    """
+    Only the runtime names the profiler reports. Anything else in an
+    offer is dropped, so a card cannot carry arbitrary text.
+    """
+    if not isinstance(value, list):
+        return []
+    present = set()
+    for item in value[:8]:
+        if isinstance(item, str) and item.strip().lower() in RUNTIME_NAMES:
+            present.add(item.strip().lower())
+    return [name for name in RUNTIME_NAMES if name in present]
+
+
 def clean_profile(profile):
     """
     Keep only the fields Freya reads, as plain bounded values. A
     profile is the machine's own statement and is never trusted for
     more than a suggestion.
+
+    A version 1 offer has no `runtimes` and only NVIDIA cards. Those
+    fields stay optional, so the old file still loads. A card whose
+    memory was not a number is still dropped; a card whose memory was
+    simply absent is kept, because Arc and some AMD reads name the
+    card before they know its size.
     """
     if not isinstance(profile, dict):
         raise RegistryError("The offer has no readable hardware profile.")
@@ -119,16 +140,26 @@ def clean_profile(profile):
     for gpu in (profile.get("gpus") or [])[:8]:
         if not isinstance(gpu, dict):
             continue
-        memory = _number(gpu.get("memory_bytes"), 1)
-        if memory is None:
+        has_name = bool(str(gpu.get("name") or "").strip())
+        memory = None
+        if gpu.get("memory_bytes") is not None:
+            memory = _number(gpu.get("memory_bytes"), 1)
+            if memory is None:
+                continue
+        elif not has_name:
             continue
-        gpus.append({
+        entry = {
             "vendor": _clean_name(gpu.get("vendor"))[:16],
             "name": _clean_name(gpu.get("name")),
-            "memory_bytes": memory,
-        })
+        }
+        if memory is not None:
+            entry["memory_bytes"] = memory
+        runtimes = _clean_runtimes(gpu.get("runtimes"))
+        if runtimes:
+            entry["runtimes"] = runtimes
+        gpus.append(entry)
 
-    return {
+    cleaned = {
         "os": {
             "system": _clean_name(os_info.get("system"))[:32],
             "release": _clean_name(os_info.get("release"))[:32],
@@ -142,6 +173,10 @@ def clean_profile(profile):
         "gpus": gpus,
         "disk_free_bytes": _number(profile.get("disk_free_bytes"), 0),
     }
+    version = profile.get("profile_version")
+    if isinstance(version, int) and not isinstance(version, bool) and 1 <= version <= 1000:
+        cleaned["profile_version"] = version
+    return cleaned
 
 
 class NodeRegistry:
