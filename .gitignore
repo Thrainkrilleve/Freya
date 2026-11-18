@@ -1,3 +1,6 @@
+# Node modules for the Minecraft adapter. The owner installs them.
+node_modules/
+
 # Python virtual environment
 .venv/
 venv/

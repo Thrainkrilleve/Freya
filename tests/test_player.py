@@ -532,6 +532,39 @@ def test_graphics_for_a_local_planner_are_read_amd_first():
     assert GPU_VENDOR_ORDER == ("amd", "intel", "nvidia")
 
 
+def test_unknown_graphics_memory_refuses_a_local_planner_before_the_adapter_is_built():
+    from freya.player.planner import local_planner_allowed
+
+    built = []
+
+    def factory():
+        built.append("built")
+        return MockGame()
+
+    found = AdapterRegistry()
+    from freya.player.registry import AdapterSpec
+    from freya.player.schema import ACTION_NAMES
+
+    found.register(AdapterSpec("mock", frozenset(ACTION_NAMES), "mock"), factory)
+    with pytest.raises(ModelRefused, match="unknown"):
+        open_session(
+            found, "mock", "local", parse_allow_list(ALLOW), Immediate(FOLLOW), GOAL,
+            environ={}, installed={DEFAULT_PLAY_MODEL}, graphics=(None, 100),
+        )
+    with pytest.raises(ModelRefused, match="unknown"):
+        open_session(
+            found, "mock", "local", parse_allow_list(ALLOW), Immediate(FOLLOW), GOAL,
+            environ={}, installed={DEFAULT_PLAY_MODEL}, graphics=(100, None),
+        )
+    with pytest.raises(ModelRefused, match="does not fit"):
+        open_session(
+            found, "mock", "local", parse_allow_list(ALLOW), Immediate(FOLLOW), GOAL,
+            environ={}, installed={DEFAULT_PLAY_MODEL}, graphics=(10, 100),
+        )
+    assert built == []
+    assert local_planner_allowed(100, 100) is True
+
+
 # --- P2-13: no windows-only input --------------------------------------
 
 
@@ -557,14 +590,21 @@ def test_the_package_has_no_windows_only_or_input_simulation_calls():
     forbidden = (
         "sendinput", "keybd_event", "mouse_event", "pyautogui", "pynput",
         "ctypes", "win32api", "quartz", "cgevent", "uinput",
-        "mineflayer", "minecraft", "elite dangerous",
-        "import subprocess", "os.system", "anti-cheat", "anticheat",
+        "elite dangerous",
+        "os.system", "anti-cheat", "anticheat",
         "socket.bind", "httpserver",
     )
+    # The mock and the schema still do not name a game or start a
+    # process. The companion adapter is the child-process exception.
+    m0_only = ("mineflayer", "minecraft", "import subprocess")
+    adapter = root / "minecraft"
     for path in root.rglob("*.py"):
         text = path.read_text(encoding="utf-8").casefold()
         for name in forbidden:
             assert name not in text, (path.name, name)
+        if adapter not in path.parents:
+            for name in m0_only:
+                assert name not in text, (path.name, name)
 
 
 # --- P2-14: core and the avatar ----------------------------------------

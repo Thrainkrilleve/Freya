@@ -23,11 +23,13 @@ from freya.player.planner import (
     LATE_PLAN_SECONDS,
     PLAN_INTERVAL_SECONDS,
     Planner,
+    local_planner_allowed,
     plan_messages,
     resolve_play_model,
 )
 from freya.player.schema import (
     ActionRefused,
+    ModelRefused,
     ObservationRefused,
     PermissionRefused,
     PlanRefused,
@@ -297,14 +299,23 @@ def open_session(
     installed=None,
     inputs=None,
     log=None,
+    graphics=None,
 ):
     """
     Attach one adapter, or refuse before anything is built.
 
-    The model name is resolved first, then the allow-list, and only
-    then is the adapter constructed. A refusal builds nothing.
+    The model name is resolved first, then free graphics memory when
+    the caller supplies a reading, then the allow-list, and only then
+    is the adapter constructed. A refusal builds nothing. Omitting
+    `graphics` does not load a model and does not probe a card: M1
+    still does not load one. A session that does load a local planner
+    passes `(free_bytes, estimate_bytes)` and an unknown figure refuses.
     """
     model = resolve_play_model(environ, installed)
+    if graphics is not None:
+        if not isinstance(graphics, tuple) or len(graphics) != 2:
+            raise ModelRefused("Free graphics memory is unknown.")
+        local_planner_allowed(graphics[0], graphics[1])
     check_attachment(allow, adapter_id, target)
     spec = registry.get(adapter_id)
     if spec is None:
