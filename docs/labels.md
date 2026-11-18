@@ -27,8 +27,9 @@ at any defined label.
 | NEW-DB to NEW-DM | `design/worker-nodes.md` | 2026-11-10 | Proposal, not adopted. Finding a machine and recording the owner's decision are built in `freya.federation`; nothing is sent and Core does not import it |
 | NEW-EA | `design/security-self-assessment.md` | 2026-11-06 | Proposal, not adopted. The read-only `security.self_assessment` checks are built |
 | NEW-EB to NEW-EG | `adr/015-persistence-recovery.md` | 2026-11-13 | Proposed decision inside ADR-015 (encryption at rest and key custody). Not approved. Backup encryption, KeyCustody, live database encryption, and key rotation and revocation are built |
+| NEW-EH to NEW-ES | `design/player-2.md` | 2026-11-18 | Proposal, design only, nothing built. Player 2 is a capability of Freya, not a second identity. ADR-015 stays not approved |
 
-**Next free range starts at NEW-EH.**
+**Next free range starts at NEW-ET.**
 
 NEW-CH is unused. It was left free beside `design/local-decider.md` (NEW-CI to
 NEW-CU). Do not give it to a new proposal.

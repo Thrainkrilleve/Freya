@@ -206,6 +206,17 @@ After the skill file exists, or sooner if Thrain reorders section 5.
 
 Not scheduled. Each needs its own decision. None of these ship inside another task.
 
+### Player 2
+
+**Status: proposed, design only.** Nothing is built. Added 2026-11-18.
+[player-2.md](design/player-2.md). ADR-015 stays **Not approved**.
+
+- **Goal:** Freya plays beside Thrain in a game he has allowed, with the same memory, personality, and voice. Minecraft on a private local world is the first real game. Elite Dangerous is a stretch after a second game has proved the interface. EVE Online is out of scope.
+- **Why:** a scripted character would be a second identity. The planner is pluggable (default `qwen3.5-4b-mtp`, or a larger local model he names). Reflexes stay on the gaming PC. A later remote planner can use an enrolled worker GPU so the game does not share the card.
+- **Depends:** Thrain accepting the proposal. No adapter is registered by the design. Screen capture and keyboard control stay unbuilt. The remote planner waits on the worker channel, which sends nothing today. [worker-nodes.md](design/worker-nodes.md).
+- **Size:** L
+- **Where:** [player-2.md](design/player-2.md). Graphics reads stay AMD, then Intel Arc, then NVIDIA (`src/freya/gpu/status.py`).
+
 - Avatar phases 2–5: screen awareness, whole-body 3D, lip sync, other devices. No screen reading and no input control until a separate permission exists. [spatial-avatar.md](design/spatial-avatar.md). **L**
 - ElevenLabs, and speech on another device. The second one waits on the signed-in gateway. **M**
 - A knowledge store. Memory and session exist; knowledge does not. [ADR-006](adr/006-memory-vs-knowledge-vs-session.md). **L**
@@ -225,3 +236,4 @@ Not scheduled. Each needs its own decision. None of these ship inside another ta
 6. Uncheck C# in the default CodeQL setup?
 7. Should Ubuntu and macOS run the full suite, or is Windows enough for the alpha?
 8. After the probes: is WSL2 on this Home PC an acceptable tier for any future `code.run`, or does untrusted execution stay off until a VM exists?
+9. Player 2 is design only ([player-2.md](design/player-2.md)). Leave it unscheduled until he asks for M0, the mock with no game?
