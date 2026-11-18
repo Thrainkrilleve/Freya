@@ -70,6 +70,11 @@ import, not for attaching a document to the conversation.
 
 ## Recent changes
 
+- Player 2 M0 is a schema and a deterministic mock, in `src/freya/player`.
+  The play model is `qwen3.5-4b-mtp` unless `FREYA_PLAY_MODEL` names
+  another installed model. It does not read `FREYA_MODEL`, and tests use
+  a fake planner rather than Ollama. Nothing is registered with the
+  control plane.
 - Background model calls (memory decisions, summaries, and the other unseen
   work around a turn) send `think` false. Set `FREYA_BACKGROUND_THINK` to
   `on`, `low`, `medium`, `high`, or `xhigh` to turn that back on for those
@@ -88,6 +93,9 @@ import, not for attaching a document to the conversation.
 - World-view tools stay off unless `FREYA_WORLD_VIEW=1`.
 - The code sandbox (`code.run`) and the local decider (`decide`) are not
   registered, and neither is in a policy seed.
+- Player 2 is not registered. M0 (`src/freya/player`) is a schema and a
+  mock game. It does not join a game, and the control plane does not
+  load it.
 
 ## Memory protection
 
