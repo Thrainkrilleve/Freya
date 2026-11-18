@@ -2,9 +2,12 @@
 
 **Status: draft proposal, written 2026-11-18. M0 is implemented in
 `src/freya/player`: the schema, the mock, the planner loop, the owner kill
-switch, the fixed control indicator, and the action record. The control
-plane registers no play capability. Core does not import the package. M1
-and later are not built. No game is played.** It records
+switch, the fixed control indicator, and the action record. M1 is
+implemented as a Minecraft adapter the owner starts: a Node program under
+`adapters/minecraft` and a Python bridge in `src/freya/player/minecraft`.
+Tests mock that bridge. CI does not join a world and does not need Node.
+The control plane registers no play capability. Core does not import the
+package. M2 and later are not built.** It records
 a vision from the main developer, with constraints Thrain added the same day.
 It approves no ADR, adopts no pending amendment, and assigns no requirement
 ID. ADR-015 stays **Not approved**. Requirements carry the provisional labels
@@ -23,16 +26,17 @@ She is Freya, playing beside Thrain with the memory, personality,
 relationships, and voice she already has. The same turn, the same store, the
 same names she answers to.
 
-Nothing in the tree plays a game today. The desktop avatar draws and points;
+Nothing in the tree joins a live game on its own. The desktop avatar draws and points;
 `spatial-avatar.md` keeps screen capture and input injection unbuilt, and a
 test fails if those calls appear in that package. `gpu/resource_manager.py`
 only unloads Ollama or asks ComfyUI to free memory. ADR-007 and ADR-016,
 which would reserve the card, are not approved. `freya.federation` can record
 an offer and Thrain's approval; it sends nothing, and Core does not import it.
 
-So the first build is a contract and a mock, not a bot in a live game.
+The first build is a contract and a mock, not a bot in a live game.
 That build is M0, in `src/freya/player`, with tests in `tests/test_player.py`.
-The milestones after it are not started.
+M1 adds the Minecraft adapter. Its tests are in `tests/test_player_minecraft.py`
+and speak to a fake bridge. M2 and later are not started.
 
 ## 2. What stays, what this extends, what this does not replace
 
@@ -143,16 +147,26 @@ clipped observation cannot hide fields). Unknown actions, extra fields, and
 a string the adapter would have to eval are refusals, and the refusal is
 audited without the plan's text.
 
-M1's list is only what that milestone needs: `follow`, `stop`, `look_at`,
-`collect`, `chat`, `drop`. M2 may add `mine`, `craft`, and `place`. A game
-that cannot perform one of those omits it and refuses it. The schema does
-not grow a free-text command.
+On 2026-11-18 Thrain asked M1 to carry full control, not only the six
+names in the first draft. The closed list is movement (`goto`, `follow`,
+`stop`, `look_at`, `jump`, `sprint`, `sneak`, `swim`, `strafe`), blocks
+and items (`dig`, `mine`, `place`, `collect`, `craft`, `smelt`, `equip`,
+`unequip`, `use`, `eat`, `drop`, `toss`), combat (`attack`, `defend`),
+chests (`open_chest`, `deposit`, `withdraw`), `sleep`, `chat`, and the
+goals `build_shelter`, `get_iron`, `get_wood`, and `get_food`. A goal is
+a name the small planner can pick. The adapter turns it into schema
+actions. The model does not write the program. `mine` is the same request
+as `dig`. A game that cannot perform one of those omits it and refuses
+it. M2 is still memory: a fact recalled after a restart and removed by
+`/forget`. The schema does not grow a free-text command.
 
 ### NEW-EJ — Eyes are structured state first
 
 The observation carries position, health, inventory, threats, and chat when
 the game has them, plus a status of `idle`, `acting`, `stuck`, `paused`, or
-`refused`. Chat lines are untrusted content. Pixels, a framebuffer, and a
+`refused`. M1 also carries food, time of day, the held item, nearby
+blocks, and nearby entities when the game has them. A field the game does
+not have is omitted. Chat lines are untrusted content. Pixels, a framebuffer, and a
 capture of the owner's screen are out of the observation until a later
 proposal builds `screen.capture` and `screen.analyze` as their own
 capabilities. This document does not build them.
@@ -379,7 +393,7 @@ new session pause unless he has armed fallback.
 
 | Game | Place | Rule |
 | --- | --- | --- |
-| Minecraft Java, via Mineflayer | M1 | Private local world on this machine, loopback only. Follow, talk, fetch. |
+| Minecraft Java, via Mineflayer | M1 | Private local world on this machine, loopback only. Full closed-schema control, goal steps, and reflexes. No public server. |
 | A second game, unnamed | M4 | Proves the schema. Not Elite. Not EVE. Chosen later. |
 | Elite Dangerous, phase A | After M4 | Read-only co-pilot. Local Journal and Status JSON in a folder Thrain names. No input. |
 | Elite Dangerous, phase B | After phase A, and only if he approves it | Input simulation. ToS and ban risk. Solo still uses Frontier's online servers and the account. Disposable account he chose. Owner approval each time it is armed. |
@@ -458,13 +472,13 @@ observations are not brief inputs (NEW-EP).
 
 ## 8. Milestones
 
-Each one can fail without enabling the next. This document does not start
-them. M0 is now in the tree; the milestones after it are not.
+Each one can fail without enabling the next. M0 and M1 are in the tree.
+M1 does not join a world from CI. M2 and later are not started.
 
 | Milestone | Exit | Tests that must already pass |
 | --- | --- | --- |
 | M0. Schema and a mock game | Implemented in `src/freya/player`. A Python mock speaks the schema. No Node, no network, no capability registered by the control plane, Core does not import the package. | P2-1, P2-2, P2-8, P2-13, P2-14, in `tests/test_player.py`. A green run is not owner acceptance. |
-| M1. Minecraft companion | Mineflayer, owner-installed, joins a private local world on loopback, follows, speaks with Thrain through the existing voice path, and fetches an item he asked for. | M0, plus P2-3, P2-4, P2-5, P2-7, P2-9 |
+| M1. Minecraft companion | Implemented. Mineflayer is owner-installed under `adapters/minecraft` and is not vendored. The Python bridge speaks JSON lines on the child's pipes and binds no port. The only legal target is loopback. The closed schema is the full control list in NEW-EI, including the goals a 4B planner can name. Reflexes (eat, flee, dodge, unstuck) are adapter code. Observations stay at or under 2,200 bytes and include food, time of day, nearby blocks, and nearby entities. `play.stop` kills the child without waiting for the action in progress. The status words stay `Freya in control` and `Freya paused`. The command `python -m freya.player.minecraft` runs one named goal and does not load a model. A session that does load a local planner refuses when free graphics memory is unknown. Tests mock the bridge. | M0, plus P2-3, P2-4, P2-5, P2-7, P2-9, in `tests/test_player.py` and `tests/test_player_minecraft.py`. A green run is not owner acceptance. |
 | M2. Tasks and memory | A schema task (mine, craft, or place) finishes in the mock and in a local world, and a build fact is recalled after a restart and removed by `/forget`. | P2-6 |
 | M3. Playstyle | Suggestions cite memories of sessions he agreed to keep. They add no action and no rule. Nothing is trained. | P2-6, and a test that a suggestion cannot widen the schema |
 | M4. Second game | A second adapter, not Elite and not EVE, passes the same schema tests as the mock. | P2-1, P2-3 |
@@ -474,9 +488,12 @@ them. M0 is now in the tree; the milestones after it are not.
 
 ## 9. Acceptance tests (provisional)
 
-All of these are code. P2-1, P2-2, P2-8, P2-13 and P2-14 have tests in
-`tests/test_player.py`. A green run is not owner acceptance. The rest are
-not built.
+All of these are code. P2-1, P2-2, P2-3, P2-5, P2-8, P2-9, P2-13 and P2-14
+have tests in `tests/test_player.py`. P2-4 (the child is killed mid-action
+and `Freya in control` clears) and P2-7 (unknown free graphics memory
+refuses a local planner; the read order remains AMD, then Intel Arc, then
+NVIDIA) are covered with the M1 tests. A green run is not owner
+acceptance. P2-6 and P2-10 onward are not built.
 
 | ID | Pass |
 | --- | --- |
@@ -499,8 +516,10 @@ not built.
 ## 10. What it costs, and what it does not do
 
 M0 is the package `src/freya/player` and `tests/test_player.py`. M1 adds
-a Node program the owner installs, and GPU time only if the planner is
-local. Remote planning waits
+`adapters/minecraft` (the Node program Thrain installs with npm; Freya
+does not download it) and `src/freya/player/minecraft`. GPU time is spent
+only if a later session loads a local planner. The M1 command does not
+load one. Remote planning waits
 on the worker channel and on an explicit allow for play plans. There is no
 new secret, no new database, and no edit to ADR-015.
 

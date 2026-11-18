@@ -11,6 +11,7 @@ accept does not move it.
 from freya.player.registry import AdapterSpec
 from freya.player.schema import (
     ACTION_NAMES,
+    M0_ACTIONS,
     ActionRefused,
     check_observation,
 )
@@ -23,7 +24,7 @@ WOOD_AT = (2, 0, 0)
 
 def register_mock(registry, actions=None) -> None:
     """Register the mock. `actions` narrows what this copy may perform."""
-    permitted = frozenset(actions if actions is not None else ACTION_NAMES)
+    permitted = frozenset(actions if actions is not None else M0_ACTIONS)
     registry.register(
         AdapterSpec(
             "mock",
@@ -40,7 +41,7 @@ class MockGame:
     adapter_id = "mock"
 
     def __init__(self, actions=None):
-        self.actions = frozenset(actions if actions is not None else ACTION_NAMES)
+        self.actions = frozenset(actions if actions is not None else M0_ACTIONS)
         self.x = 0
         self.y = 0
         self.z = 0

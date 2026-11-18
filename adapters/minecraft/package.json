@@ -1,0 +1,22 @@
+{
+  "name": "freya-minecraft-adapter",
+  "private": true,
+  "description": "Loopback Minecraft companion. The owner installs these packages with npm. They are not vendored and Freya does not download them.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bot.js"
+  },
+  "dependencies": {
+    "mineflayer": "^4.33.0",
+    "mineflayer-armor-manager": "^2.0.0",
+    "mineflayer-collectblock": "^1.6.0",
+    "mineflayer-pathfinder": "^2.4.5",
+    "mineflayer-pvp": "^1.3.2",
+    "mineflayer-tool": "^1.2.0",
+    "minecraft-data": "^3.84.0",
+    "vec3": "^0.1.10"
+  }
+}

@@ -208,7 +208,7 @@ Not scheduled. Each needs its own decision. None of these ship inside another ta
 
 ### Player 2
 
-**Status: proposed, design only.** Nothing is built. Added 2026-11-18.
+**Status: proposed, not adopted.** M0 (schema and mock) is merged. M1 (Minecraft adapter, mocked in CI) is in the tree and is not registered. Added 2026-11-18.
 [player-2.md](design/player-2.md). ADR-015 stays **Not approved**.
 
 - **Goal:** Freya plays beside Thrain in a game he has allowed, with the same memory, personality, and voice. Minecraft on a private local world is the first real game. Elite Dangerous is a stretch after a second game has proved the interface. EVE Online is out of scope.
@@ -236,4 +236,4 @@ Not scheduled. Each needs its own decision. None of these ship inside another ta
 6. Uncheck C# in the default CodeQL setup?
 7. Should Ubuntu and macOS run the full suite, or is Windows enough for the alpha?
 8. After the probes: is WSL2 on this Home PC an acceptable tier for any future `code.run`, or does untrusted execution stay off until a VM exists?
-9. Player 2 is design only ([player-2.md](design/player-2.md)). Leave it unscheduled until he asks for M0, the mock with no game?
+9. Player 2 M0 and M1 are in the tree and not registered ([player-2.md](design/player-2.md)). Leave M2 unscheduled until he asks?

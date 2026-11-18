@@ -27,6 +27,69 @@ not the default, and Freya does not download it.
 
 Image generation uses ComfyUI on `127.0.0.1:8188` when a picture is asked for.
 
+## Minecraft companion (Player 2, M1)
+
+Thrain runs a Minecraft Java world on this machine. Freya can join it
+through Mineflayer. The adapter is not registered with the control plane,
+and Freya does not download Node, the plugins, or the game. The tests
+mock the bridge, so CI does not need Node or a server.
+
+Install Node.js 20 or newer. From `adapters/minecraft`:
+
+```
+npm install
+```
+
+That installs Mineflayer, mineflayer-pathfinder, mineflayer-pvp,
+mineflayer-collectblock, mineflayer-tool, and mineflayer-armor-manager.
+They are not vendored.
+
+Start a local server bound to loopback, with online mode off so the
+offline name can join. In `server.properties`:
+
+```
+server-ip=127.0.0.1
+online-mode=false
+```
+
+Write an allow-list, for example `allow.json`:
+
+```
+[{"adapter":"minecraft","target":"127.0.0.1:25565"}]
+```
+
+Run one goal. Reflexes (eat when hungry, flee when health is low, dodge,
+and jump when stuck) stay in the adapter. The play model name is
+`qwen3.5-4b-mtp` unless `FREYA_PLAY_MODEL` names another installed model.
+This command prints that name and does not load the model. A session that
+does load a local planner refuses when free graphics memory is unknown.
+
+```
+python -m freya.player.minecraft --allow allow.json --target 127.0.0.1:25565 --goal get_wood
+```
+
+Goals are `build_shelter`, `get_iron`, `get_wood`, and `get_food`.
+
+Type `stop`, or press Ctrl+C. Movement halts and the child process ends.
+While she can act, the status line is `Freya in control`. When she
+cannot, it is `Freya paused`. Those words are fixed.
+
+Microsoft sign-in is optional. Set `FREYA_MINECRAFT_AUTH=microsoft` and
+complete the device code Mineflayer prints on the error stream. The cache
+stays in Mineflayer's own folder, outside this repository. Freya does not
+read or store those tokens. Leave the variable unset for offline play on
+the loopback server, which is the default. A server on another machine is
+refused.
+
+`FREYA_MINECRAFT_USERNAME` is the offline name (default `Freya`).
+`FREYA_MINECRAFT_VERSION` is optional, for example `1.20.4`.
+`FREYA_MINECRAFT_NODE` names the Node program when it is not `node` on
+`PATH`.
+
+The adapter opens no listening port. It talks to the child on standard
+input and output, and the child connects only to a loopback address. A
+public server, another machine, and EVE Online are refused.
+
 ## Graphics cards
 
 Live GPU status (`system.gpu`), model fit (`python -m freya.gpu fit`), and
@@ -70,11 +133,11 @@ import, not for attaching a document to the conversation.
 
 ## Recent changes
 
-- Player 2 M0 is a schema and a deterministic mock, in `src/freya/player`.
-  The play model is `qwen3.5-4b-mtp` unless `FREYA_PLAY_MODEL` names
-  another installed model. It does not read `FREYA_MODEL`, and tests use
-  a fake planner rather than Ollama. Nothing is registered with the
-  control plane.
+- Player 2 M1 is a Minecraft adapter for a loopback world. Setup is
+  in the section above. The play model is still `qwen3.5-4b-mtp` unless
+  `FREYA_PLAY_MODEL` names another installed model. It does not read
+  `FREYA_MODEL`. Tests use a fake bridge and a fake planner. Nothing is
+  registered with the control plane.
 - Background model calls (memory decisions, summaries, and the other unseen
   work around a turn) send `think` false. Set `FREYA_BACKGROUND_THINK` to
   `on`, `low`, `medium`, `high`, or `xhigh` to turn that back on for those
@@ -93,9 +156,9 @@ import, not for attaching a document to the conversation.
 - World-view tools stay off unless `FREYA_WORLD_VIEW=1`.
 - The code sandbox (`code.run`) and the local decider (`decide`) are not
   registered, and neither is in a policy seed.
-- Player 2 is not registered. M0 (`src/freya/player`) is a schema and a
-  mock game. It does not join a game, and the control plane does not
-  load it.
+- Player 2 is not registered. M0 is the schema and the mock. M1 is the
+  Minecraft adapter, started only by the command above. The control
+  plane does not load either of them.
 
 ## Memory protection
 
