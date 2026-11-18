@@ -72,6 +72,8 @@ for line in sys.stdin:
         result = {"status": "idle"}
         if method == "observe":
             result = {"status": "idle", "health": 20, "food": 20}
+        if method == "ready":
+            result = {"spawned": True}
         body = {"id": msg.get("id"), "ok": True, "result": result}
     sys.stdout.write(json.dumps(body) + "\n")
     sys.stdout.flush()
@@ -361,12 +363,35 @@ def test_stop_mid_session_clears_control_and_halts_the_child():
 
 
 def test_goals_choose_a_schema_step_from_the_inventory():
-    assert next_step("get_wood", _world()).name == "dig"
+    assert next_step("get_wood", _world()).name == "goto"
+    wood = next_step("get_wood", _world(
+        blocks=[{"name": "oak_log", "x": 4, "y": 64, "z": 1}],
+    ))
+    assert wood.name == "dig"
+    assert wood.arguments["block"] == "oak_log"
+    assert wood.arguments["x"] == 4
+    spruce = next_step("get_wood", _world(
+        blocks=[{"name": "spruce_log", "x": 6, "y": 64, "z": 0}],
+    ))
+    assert spruce.arguments["block"] == "spruce_log"
     assert next_step("get_wood", _world(
         inventory=[{"item": "oak_log", "count": 4}],
     )) is None
+    assert next_step("get_wood", _world(
+        inventory=[
+            {"item": "birch_log", "count": 2},
+            {"item": "spruce_log", "count": 2},
+        ],
+    )) is None
+    nearer = next_step("get_wood", _world(), attempt=0)
+    farther = next_step("get_wood", _world(), attempt=8)
+    assert nearer.name == "goto" and farther.name == "goto"
+    assert abs(farther.arguments["x"]) > abs(nearer.arguments["x"])
 
-    assert next_step("get_iron", _world()).arguments["block"] == "oak_log"
+    assert next_step("get_iron", _world()).name == "goto"
+    assert next_step("get_iron", _world(
+        blocks=[{"name": "oak_log", "x": 3, "y": 64, "z": 1}],
+    )).arguments["block"] == "oak_log"
     assert next_step("get_iron", _world(
         inventory=[{"item": "oak_log", "count": 1}],
     )).arguments["item"] == "oak_planks"
@@ -392,6 +417,10 @@ def test_goals_choose_a_schema_step_from_the_inventory():
     )).arguments["item"] == "wooden_pickaxe"
     assert next_step("get_iron", _world(
         inventory=[{"item": "wooden_pickaxe", "count": 1}],
+    )).name == "goto"
+    assert next_step("get_iron", _world(
+        inventory=[{"item": "wooden_pickaxe", "count": 1}],
+        blocks=[{"name": "stone", "x": 1, "y": 63, "z": 0}],
     )).arguments["block"] == "stone"
     assert next_step("get_iron", _world(
         inventory=[
@@ -402,7 +431,11 @@ def test_goals_choose_a_schema_step_from_the_inventory():
     )).arguments["item"] == "stone_pickaxe"
     assert next_step("get_iron", _world(
         inventory=[{"item": "stone_pickaxe", "count": 1}],
-    )).arguments["block"] == "iron_ore"
+    )).name == "goto"
+    assert next_step("get_iron", _world(
+        inventory=[{"item": "stone_pickaxe", "count": 1}],
+        blocks=[{"name": "deepslate_iron_ore", "x": 2, "y": 10, "z": 2}],
+    )).arguments["block"] == "deepslate_iron_ore"
     assert next_step("get_iron", _world(
         inventory=[
             {"item": "stone_pickaxe", "count": 1},
@@ -418,6 +451,13 @@ def test_goals_choose_a_schema_step_from_the_inventory():
     assert next_step("get_iron", _world(
         inventory=[{"item": "raw_iron", "count": 1}],
         blocks=[{"name": "furnace", "x": 1, "y": 64, "z": 0}],
+    )).name == "goto"
+    assert next_step("get_iron", _world(
+        inventory=[{"item": "raw_iron", "count": 1}],
+        blocks=[
+            {"name": "furnace", "x": 1, "y": 64, "z": 0},
+            {"name": "coal_ore", "x": 4, "y": 60, "z": 2},
+        ],
     )).arguments["block"] == "coal_ore"
     smelt = next_step("get_iron", _world(
         inventory=[
@@ -438,8 +478,17 @@ def test_goals_choose_a_schema_step_from_the_inventory():
     assert next_step("get_food", _world(
         entities=[{"name": "cow", "x": 2, "y": 64, "z": 0, "kind": "passive"}],
     )).arguments["target"] == "cow"
-    assert next_step("get_food", _world()).arguments["item"] == "sweet_berries"
+    assert next_step("get_food", _world()).name == "goto"
+    berries = next_step("get_food", _world(
+        blocks=[{"name": "sweet_berry_bush", "x": 3, "y": 64, "z": 1}],
+    ))
+    assert berries.name == "collect"
+    assert berries.arguments["item"] == "sweet_berries"
 
+    assert next_step("build_shelter", _world()).name == "goto"
+    assert next_step("build_shelter", _world(
+        blocks=[{"name": "oak_log", "x": 2, "y": 64, "z": 0}],
+    )).arguments["block"] == "oak_log"
     placed = next_step("build_shelter", _world(
         inventory=[{"item": "oak_planks", "count": 4}],
     ))
@@ -453,6 +502,79 @@ def test_goals_choose_a_schema_step_from_the_inventory():
             {"name": "oak_planks", "x": 0, "y": 64, "z": -1},
         ],
     )) is None
+
+
+def test_get_wood_keeps_going_until_the_logs_are_in_hand():
+    blocks = [{"name": "stone", "x": index, "y": 64, "z": 0} for index in range(1, 12)]
+    blocks.append({"name": "oak_log", "x": 40, "y": 65, "z": 0})
+    adapter, bridge = _adapter(_world(blocks=blocks))
+    action = _accept(adapter, {"action": "get_wood", "arguments": {}})
+    adapter.reflex(action, IN_CONTROL)
+    assert bridge.sent[-1][0] == "dig"
+    assert bridge.sent[-1][1]["block"] == "oak_log"
+    assert bridge.sent[-1][1]["x"] == 40
+    assert adapter.finished is False
+
+    bridge.observation = _world(inventory=[{"item": "oak_log", "count": 4}])
+    adapter.reflex(action, IN_CONTROL)
+    assert adapter.finished is True
+    assert adapter.status == "idle"
+
+
+def test_the_first_action_waits_until_the_bot_has_spawned():
+    class Gate(FakeBridge):
+        def __init__(self):
+            super().__init__()
+            self.events = []
+            self.ready = False
+
+        def wait_until_spawned(self, timeout=20):
+            self.events.append("ready")
+            self.ready = True
+
+        def act(self, name, arguments):
+            self.events.append("act")
+            if not self.ready:
+                raise ActionRefused("The bot is not in a world.")
+            super().act(name, arguments)
+
+        def observe(self):
+            self.events.append("observe")
+            return super().observe()
+
+    bridge = Gate()
+    adapter = MinecraftAdapter(bridge=bridge)
+    action = _accept(adapter, {"action": "jump", "arguments": {}})
+    adapter.reflex(action, IN_CONTROL)
+    assert bridge.events[0] == "ready"
+    assert bridge.events.index("ready") < bridge.events.index("act")
+    assert ("jump", {}) in bridge.sent
+
+
+def test_not_in_a_world_is_retried_instead_of_refused():
+    class Flaky(FakeBridge):
+        def __init__(self):
+            super().__init__()
+            self.waits = 0
+            self.acts = 0
+
+        def wait_until_spawned(self, timeout=20):
+            self.waits += 1
+
+        def act(self, name, arguments):
+            self.acts += 1
+            if self.acts == 1:
+                raise ActionRefused("The bot is not in a world.")
+            super().act(name, arguments)
+
+    bridge = Flaky()
+    adapter = MinecraftAdapter(bridge=bridge)
+    action = _accept(adapter, {"action": "jump", "arguments": {}})
+    adapter.reflex(action, IN_CONTROL)
+    assert bridge.acts == 2
+    assert bridge.waits >= 2
+    assert ("jump", {}) in bridge.sent
+    assert adapter.status != "refused"
 
 
 # --- eyes --------------------------------------------------------------
@@ -527,6 +649,116 @@ def test_a_large_reading_is_summarised_under_the_cap_and_a_raw_one_is_refused():
         check_observation(too_many)
 
 
+def _live_spawn():
+    """
+    The shape captured from the first live spawn.
+
+    The player name in the fixture is a stand-in. Coordinates that were
+    not written down are ordinary block and mob positions of the same kind.
+    """
+    return {
+        "adapter": "minecraft",
+        "blocks": [
+            {"name": "stone", "x": 23, "y": 76, "z": -26},
+            {"name": "dirt", "x": 23, "y": 75, "z": -26},
+            {"name": "grass_block", "x": 24, "y": 76, "z": -25},
+            {"name": "stone", "x": 22, "y": 76, "z": -26},
+            {"name": "dirt", "x": 23, "y": 76, "z": -25},
+            {"name": "stone", "x": 23, "y": 74, "z": -26},
+            {"name": "granite", "x": 24, "y": 75, "z": -26},
+            {"name": "andesite", "x": 22, "y": 75, "z": -26},
+        ],
+        "control": IN_CONTROL,
+        "entities": [
+            {"kind": "player", "name": "Thrain", "x": 14.84, "y": 79, "z": -32.84},
+            {"kind": "passive", "name": "sheep", "x": 20.2, "y": 77, "z": -20.5},
+            {"kind": "hostile", "name": "skeleton", "x": 30.1, "y": 77, "z": -18.4},
+        ],
+        "food": 20,
+        "health": 20,
+        "position": {"x": 23.5, "y": 77, "z": -25.5},
+        "status": "idle",
+        "threats": ["skeleton"],
+        "time_of_day": 4118,
+    }
+
+
+def test_the_live_spawn_observation_matches_the_schema():
+    raw = _live_spawn()
+    seen = check_observation(raw)
+    assert seen["time_of_day"] == 4118
+    assert seen["health"] == 20
+    assert seen["food"] == 20
+    assert seen["position"] == {"x": 23.5, "y": 77, "z": -25.5}
+    assert seen["threats"] == ["skeleton"]
+    assert seen["blocks"][0]["name"] == "stone"
+    assert seen["blocks"][0]["z"] == -26
+    player = next(entity for entity in seen["entities"] if entity["kind"] == "player")
+    assert player["name"] == "Thrain"
+    assert player["x"] == 14.84
+    assert len(seen["blocks"]) == 8
+    assert len(seen["entities"]) == 3
+
+    bridge_raw = dict(raw)
+    bridge_raw.pop("adapter")
+    bridge_raw.pop("control")
+    adapter, _bridge = _adapter(bridge_raw)
+    action = _accept(adapter, {"action": "jump", "arguments": {}})
+    reflected = adapter.reflex(action, IN_CONTROL)
+    check_observation(reflected)
+    again = adapter.view(IN_CONTROL)
+    check_observation(again)
+    assert again["time_of_day"] == 4118
+    assert again["threats"] == ["skeleton"]
+    assert any(entity["name"] == "Thrain" for entity in again["entities"])
+    assert any(block["name"] == "stone" and block["x"] == 23 for block in again["blocks"])
+
+
+def test_a_float_clock_and_a_namespaced_threat_stay_inside_the_schema():
+    seen = summarize({
+        "status": "idle",
+        "time_of_day": 4118.9,
+        "threats": ["minecraft:skeleton"],
+        "entities": [{
+            "name": "minecraft:skeleton",
+            "kind": "hostile",
+            "x": 30.1,
+            "y": 77,
+            "z": -18.4,
+        }],
+        "position": {"x": 23.5, "y": 77, "z": -25.5},
+        "health": 20,
+        "food": 20,
+    }, adapter="minecraft", control=IN_CONTROL)
+    assert seen["time_of_day"] == 4118
+    assert seen["threats"] == ["skeleton"]
+    assert seen["entities"][0]["name"] == "skeleton"
+    check_observation(seen)
+
+    wrapped = summarize({
+        "status": "idle",
+        "time_of_day": 24001,
+    }, adapter="minecraft", control=IN_CONTROL)
+    assert wrapped["time_of_day"] == 1
+    check_observation(wrapped)
+
+
+def test_a_distant_log_is_not_crowded_out_by_nearby_stone():
+    blocks = [{"name": "stone", "x": index, "y": 64, "z": 0} for index in range(1, 12)]
+    blocks.append({"name": "oak_log", "x": 40, "y": 65, "z": 0})
+    blocks.append({"name": "deepslate_iron_ore", "x": 36, "y": 12, "z": 4})
+    seen = summarize(
+        {"status": "idle", "position": {"x": 0, "y": 64, "z": 0}, "blocks": blocks},
+        adapter="minecraft",
+        control=IN_CONTROL,
+    )
+    names = [block["name"] for block in seen["blocks"]]
+    assert "oak_log" in names
+    assert "deepslate_iron_ore" in names
+    assert len(seen["blocks"]) <= 8
+    check_observation(seen)
+
+
 # --- bridge ------------------------------------------------------------
 
 
@@ -584,6 +816,7 @@ def test_the_child_speaks_json_and_stop_kills_it_during_an_action():
     try:
         seen = bridge.observe()
         assert seen["health"] == 20
+        bridge.wait_until_spawned(timeout=2)
         bridge.act("jump", {})
         with pytest.raises(ActionRefused, match="not in a world"):
             bridge.request("noworld")
@@ -667,6 +900,11 @@ def test_the_node_program_stays_on_loopback_and_does_not_store_secrets():
     assert "listen(" not in folded
     assert "offline" in folded
     assert "microsoft" in folded
+    assert "findblocks" in folded
+    assert "physicstick" in folded
+    assert "spawned" in folded
+    assert "bot.on('physictick'" not in folded
+    assert 'bot.on("physictick"' not in folded
     for line in text.splitlines():
         if "require(" in line:
             assert "freya" not in line.casefold()

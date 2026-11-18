@@ -245,6 +245,28 @@ class LineBridge:
         result = self.request("observe")
         return result if isinstance(result, dict) else {}
 
+    def wait_until_spawned(self, timeout=20) -> None:
+        """
+        Block until the child reports it is in a world, or the timeout.
+
+        `ready` returns at once. This loop is what waits, so `stop` can
+        kill the child between checks instead of after a long action.
+        """
+        deadline = time.monotonic() + timeout
+        while True:
+            if self._stopped:
+                raise ActionRefused("Play has stopped.")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ActionRefused("The bot is not in a world.")
+            result = self.request("ready", timeout=min(5, remaining))
+            if isinstance(result, dict) and result.get("spawned") is True:
+                return
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise ActionRefused("The bot is not in a world.")
+            time.sleep(min(0.05, remaining))
+
     def halt(self) -> None:
         if self._stopped:
             return
