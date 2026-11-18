@@ -194,7 +194,9 @@ After the skill file exists, or sooner if Thrain reorders section 5.
 ### GPU admission
 
 - **Goal:** a reservation for the card, not only evict-on-demand.
-- **Why:** image, voice, and a larger model fight over one 4090.
+- **Why:** image, voice, and a larger model fight over one graphics card. The owner's
+  card is an AMD Radeon RX 9070 XT (16 GB); live reads ask AMD first, then Intel Arc,
+  then NVIDIA.
 - **Depends:** [ADR-016](adr/016-resource-admission-ownership.md). Cloud usage limits already exist.
 - **Size:** M
 - **Where:** [ADR-007](adr/007-resource-intelligence-vram-management.md),

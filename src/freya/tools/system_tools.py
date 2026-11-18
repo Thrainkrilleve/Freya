@@ -1,10 +1,8 @@
 import platform
 import shutil
-import subprocess
 
 import psutil
 
-from freya.child_environment import child_environment
 from freya.core.capabilities import (
     CapabilityDefinition,
     declare,
@@ -215,94 +213,15 @@ def get_memory_info():
 
 def get_gpu_info():
     """
-    Query NVIDIA GPU status using nvidia-smi.
+    Live status of each graphics card.
 
-    This is read-only.
+    AMD is read first, then Intel, then NVIDIA. A missing tool leaves
+    the fields it would have filled empty and does not raise. This is
+    read-only.
     """
+    from freya.gpu.status import read_gpus
 
-    command = [
-        "nvidia-smi",
-        "--query-gpu="
-        "name,"
-        "temperature.gpu,"
-        "utilization.gpu,"
-        "memory.total,"
-        "memory.used,"
-        "memory.free",
-        "--format=csv,noheader,nounits",
-    ]
-
-    completed = subprocess.run(
-        command,
-        capture_output=True,
-        text=True,
-        check=True,
-        timeout=10,
-        env=child_environment(),
-        # Without this, a Freya running without a console of her own
-        # flashes a terminal window each time the GPU is queried.
-        creationflags=getattr(
-            subprocess,
-            "CREATE_NO_WINDOW",
-            0,
-        ),
-    )
-
-    output = completed.stdout.strip()
-
-    if not output:
-        raise RuntimeError(
-            "nvidia-smi returned no GPU data."
-        )
-
-    gpus = []
-
-    for index, line in enumerate(
-        output.splitlines()
-    ):
-        parts = [
-            part.strip()
-            for part in line.split(",")
-        ]
-
-        if len(parts) != 6:
-            raise RuntimeError(
-                "Unexpected nvidia-smi output: "
-                f"{line}"
-            )
-
-        (
-            name,
-            temperature,
-            utilization,
-            memory_total,
-            memory_used,
-            memory_free,
-        ) = parts
-
-        gpus.append(
-            {
-                "index": index,
-                "name": name,
-                "temperature_c": int(
-                    temperature
-                ),
-                "utilization_percent": int(
-                    utilization
-                ),
-                "memory_total_mib": int(
-                    memory_total
-                ),
-                "memory_used_mib": int(
-                    memory_used
-                ),
-                "memory_free_mib": int(
-                    memory_free
-                ),
-            }
-        )
-
-    return gpus
+    return read_gpus()
 
 
 def register_system_tools(
@@ -368,10 +287,14 @@ def register_system_tools(
         CapabilityDefinition(
             name="system.gpu",
             description=(
-                "Returns the graphics card's live status: "
-                "temperature, utilization, and VRAM used and "
-                "free. For its hot spot temperature, fans, or "
-                "power draw, use system_sensors."
+                "Returns each graphics card's live status: "
+                "vendor, temperature, utilization, and dedicated "
+                "VRAM used and free. AMD is listed before Intel, "
+                "and Intel before NVIDIA. Unknown readings are "
+                "null. An integrated adapter is reported with "
+                "shared memory and no dedicated total. For hot "
+                "spot temperature, fans, or power draw, use "
+                "system_sensors."
             ),
             provider=SYSTEM_TOOLS_PROVIDER,
             handler=get_gpu_info,

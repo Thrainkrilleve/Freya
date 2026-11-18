@@ -1,8 +1,10 @@
 # Freya — project guide for Claude
 
-Freya is a local-first, modular, multi-user agentic AI platform. The alpha targets a
-single Windows 11 workstation (RTX 4090); the architecture must later scale to a
-heterogeneous Linux/Windows rack without changing Core contracts.
+Freya is a local-first, modular, multi-user agentic AI platform. The alpha runs on
+Windows, Linux, and macOS. The owner's machine is a Windows 11 workstation with a
+Ryzen 7 9800X3D and an AMD Radeon RX 9070 XT (16 GB). Graphics are read AMD first,
+then Intel Arc, then NVIDIA. The architecture must later scale to a heterogeneous
+rack without changing Core contracts.
 
 ## Architecture documents
 
@@ -65,10 +67,14 @@ Rules for the spec:
   seed in `control_plane.py`. Its description is what the model chooses by, so say
   what it returns and when to prefer a neighbouring tool.
 - `src/freya/gpu/resource_manager.py` — Ollama/ComfyUI VRAM handoff.
-  `src/freya/gpu/model_fit.py` (`python -m freya.gpu fit|measure`) — estimates whether a
-  model fits the card, the card plus system memory, or neither, and measures where Ollama
-  actually put it; see `docs/design/larger-models.md`. It changes no setting; `measure`
-  loads the model with no layer count forced and sends only a made-up question.
+  `src/freya/gpu/status.py` — live GPU status for `system.gpu`, model fit, and the
+  speech engine's free-memory check. AMD first, then Intel, then NVIDIA; a missing
+  tool leaves fields unknown and does not raise. Intel Arc paths are untested on
+  real Arc hardware. `src/freya/gpu/model_fit.py` (`python -m freya.gpu fit|measure`)
+  — estimates whether a model fits the card, the card plus system memory, or neither,
+  and measures where Ollama actually put it; see `docs/design/larger-models.md`. It
+  changes no setting; `measure` loads the model with no layer count forced and sends
+  only a made-up question.
 - `src/freya/host_checks.py` — read-only checks of this PC whose result is told to the
   owner at startup. Today: Windows Smart App Control, which when on blocks unsigned
   libraries (ComfyUI's, PyTorch's, the voice engines') with no exception possible.

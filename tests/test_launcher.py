@@ -4,6 +4,7 @@ import sys
 import pytest
 
 from freya import launcher
+from freya.gpu import status
 from freya.tools import hardware_inventory, system_tools
 
 
@@ -78,13 +79,14 @@ def test_freyas_own_tools_ask_for_no_window(monkeypatch):
     calls = []
 
     class Done:
-        stdout = "Test GPU, 40, 5, 1000, 100, 900"
+        returncode = 0
+        stdout = ""
 
     def fake_run(command, **kwargs):
         calls.append((command[0], kwargs.get("creationflags")))
         return Done()
 
-    monkeypatch.setattr(system_tools.subprocess, "run", fake_run)
+    monkeypatch.setattr(status.subprocess, "run", fake_run)
     system_tools.get_gpu_info()
 
     Done.stdout = "{}"
@@ -94,7 +96,10 @@ def test_freyas_own_tools_ask_for_no_window(monkeypatch):
     hardware_inventory.get_hardware_inventory()
     hardware_inventory.clear_hardware_inventory_cache()
 
-    assert calls == [("nvidia-smi", NO_WINDOW), ("powershell.exe", NO_WINDOW)]
+    assert calls == [
+        *[(command[0], NO_WINDOW) for command in status.probe_commands("Windows")],
+        ("powershell.exe", NO_WINDOW),
+    ]
 
 
 def test_second_launch_does_not_touch_the_running_log(tmp_path, monkeypatch):
