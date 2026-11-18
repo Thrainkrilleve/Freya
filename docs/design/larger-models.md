@@ -4,18 +4,28 @@ Status: a proposal and a measuring tool, written 2026-11-10. Nothing here change
 which model Freya uses. Figures from other people's machines are marked as such; none
 has been measured on this PC yet.
 
+The current workstation is a Ryzen 7 9800X3D with an AMD Radeon RX 9070 XT (16 GB).
+Live card reads and `python -m freya.gpu fit` ask AMD first, then Intel Arc, then
+NVIDIA. The memory totals and the table below were worked out for an assumed RTX
+4090 with 24 GB and 64 GB of system memory. That is not the current hardware, and
+those figures have not been remeasured on the RX 9070 XT.
+
 ## Where things stand
 
-- The card is an RTX 4090 with 24 GB; about 2 GB is taken by the desktop. System
-  memory is 64 GB (checked 2026-10-11, `code-sandbox.md`).
-- Freya answers with `qwen3.8:27b` (17 GB file, about 19 GB on the card at 16,384
-  tokens). It passed every delegated task in the 2026-10-09 benchmark.
+- The card these estimates assume is an RTX 4090 with 24 GB; about 2 GB is taken by
+  the desktop. System memory in that note is 64 GB (checked 2026-10-11,
+  `code-sandbox.md`). Neither figure is the current machine.
+- Freya's default answer model is still `qwen3.8:27b` (17 GB file, about 19 GB on
+  the card at 16,384 tokens in the 4090 notes). It passed every delegated task in
+  the 2026-10-09 benchmark, which was also run on that assumed 4090. Whether the
+  file fits the 16 GB RX 9070 XT is a new measurement, not a claim in this note.
 - `nemotron-3.5-lightning:30b` (25 GB) was the only model tried that did not fit the
-  card; Ollama put 17% of it in system memory.
+  assumed 24 GB card; Ollama put 17% of it in system memory.
 
-So about 22 GB on the card and roughly 50 GB of system memory (after Windows, Freya,
-speech recognition, Kokoro and the window) are available to a model and its cache:
-about 72 GB in all.
+On that assumed machine, about 22 GB on the card and roughly 50 GB of system memory
+(after Windows, Freya, speech recognition, Kokoro and the window) were available to
+a model and its cache: about 72 GB in all. The RX 9070 XT has 16 GB, so the card
+budget is smaller and `fit` has to be run again before anyone trusts a row.
 
 ## What actually lets a larger model run
 
@@ -26,7 +36,8 @@ mixture-of-experts model reads only a few of its experts per token. If the exper
 are what leaves the card and everything else stays on it, a model three times the
 size of the card can still answer at conversation speed.
 
-The estimates from `python -m freya.gpu fit` for this machine at 16,384 tokens:
+The estimates from `python -m freya.gpu fit` below used the assumed 4090 (24 GB) and
+64 GB of memory at 16,384 tokens. They are not readings from the RX 9070 XT:
 
 | Model | File | Where it goes | Speed ceiling |
 |---|---|---|---|
@@ -37,7 +48,8 @@ The estimates from `python -m freya.gpu fit` for this machine at 16,384 tokens:
 
 The ceiling is worked out from memory speeds and is always above what is achieved.
 Reports from other machines put `gpt-oss:120b` with experts in memory at roughly 25 to
-40 tokens a second on a 4090 with DDR5, depending on memory speed. The 70B dense
+40 tokens a second on a 4090 with DDR5, depending on memory speed. Those reports are
+about that card, not about this workstation's RX 9070 XT. The 70B dense
 model is the cautionary row: it fits, but at two tokens a second it is not usable for
 conversation.
 
@@ -68,7 +80,8 @@ If Ollama's placement turns out poor, the next step is running llama.cpp's own s
 directly, which has explicit controls: `--n-cpu-moe N` (experts of the first N layers
 in memory) and, merged in October 2026, `--moe-cache-mib N`, which keeps the most used
 experts on the card and was reported at about 1.6 times faster on a 4090 for one large
-model. That would be a second local model provider beside `ollama-local`, which fits
+model. That report is from someone else's 4090, not from this RX 9070 XT. That would
+be a second local model provider beside `ollama-local`, which fits
 the agreed decision that Ollama is a replaceable runtime. It is not built: measure
 first.
 

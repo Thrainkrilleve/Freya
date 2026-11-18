@@ -1,7 +1,3 @@
-import os
-import subprocess
-
-from freya.child_environment import child_environment
 from freya.speech.chatterbox_engine import ChatterboxEngine
 from freya.speech.engines import planned_engines
 from freya.speech.kokoro_engine import KokoroEngine
@@ -12,27 +8,16 @@ from freya.speech.studio import VoiceStudio
 
 def free_gpu_megabytes():
     """
-    Free memory on the graphics card, or None when it cannot be read.
-    """
-    try:
-        output = subprocess.run(
-            [
-                "nvidia-smi",
-                "--query-gpu=memory.free",
-                "--format=csv,noheader,nounits",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            env=child_environment(),
-            creationflags=(
-                subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
-            ),
-        ).stdout
+    Free dedicated memory on the preferred graphics card, in MiB.
 
-        return int(output.strip().splitlines()[0])
-    except (OSError, ValueError, IndexError, subprocess.SubprocessError):
-        return None
+    The card is the same one model fit uses: AMD, then Intel, then
+    NVIDIA, and an integrated adapter with no dedicated total does not
+    stand in for a discrete card. None when that free amount was not
+    reported.
+    """
+    from freya.gpu.status import preferred_free_mib
+
+    return preferred_free_mib()
 
 
 def make_room_on_gpu(megabytes_needed: int) -> None:

@@ -31,8 +31,9 @@ KV_CACHE_BYTES = {
     "q4_0": 18 / 32,
 }
 
-# What the desktop, browser and other programs keep on the card. Measured
-# at about 2.1 GB on this workstation on 2026-10-09; a little is added.
+# What the desktop, browser and other programs keep on the card. About
+# 2.1 GB was measured on 2026-10-09, when this note assumed an RTX 4090;
+# a little is added. It is not a reading from the current RX 9070 XT.
 DEFAULT_VRAM_RESERVE_GB = 2.5
 
 # System memory left for Windows, Freya herself, speech recognition,
@@ -42,9 +43,11 @@ DEFAULT_RAM_RESERVE_GB = 14.0
 # Working space the runtime needs on the card beyond weights and cache.
 COMPUTE_BUFFER_GB = 1.0
 
-# Rough sustained read speeds, used only for the speed ceiling. A 4090
-# reads about 1 TB/s; dual-channel DDR5 about 60-80 GB/s in practice,
-# DDR4 about 40-50. The owner can give the real figure.
+# Rough sustained read speeds, used only for the speed ceiling. The
+# default was chosen for a 4090-class card (about 1 TB/s) and is not a
+# measurement of the current RX 9070 XT. Dual-channel DDR5 is about
+# 60-80 GB/s in practice, DDR4 about 40-50. The owner can give the real
+# figure.
 DEFAULT_GPU_BANDWIDTH_GBS = 800.0
 DEFAULT_RAM_BANDWIDTH_GBS = 55.0
 
@@ -427,15 +430,22 @@ def facts_from_figures(
 
 
 def this_machine(**overrides) -> Machine:
-    """This workstation's card and memory, read live."""
+    """
+    This workstation's card and memory, read live.
+
+    The card is the first one that reported a dedicated total, in the
+    live-status order (AMD, then Intel, then NVIDIA). An integrated
+    adapter with no dedicated total does not hide a discrete card.
+    """
+    from freya.gpu.status import preferred_gpu
     from freya.tools.system_tools import get_gpu_info, get_memory_info
 
-    gpus = get_gpu_info()
+    gpu = preferred_gpu(get_gpu_info()) or {}
     memory = get_memory_info()
-    gpu = gpus[0] if gpus else {"memory_total_mib": 0, "name": ""}
+    total = gpu.get("memory_total_mib") or 0
 
     return Machine(
-        vram_total_gb=gpu["memory_total_mib"] / 1024,
+        vram_total_gb=total / 1024,
         ram_total_gb=memory["total_gb"],
         gpu_name=gpu.get("name", ""),
         **{key: value for key, value in overrides.items() if value is not None},

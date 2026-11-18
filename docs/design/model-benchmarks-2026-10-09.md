@@ -1,8 +1,11 @@
 # Local model benchmarks, 2026-10-09
 
 Status: measurements, not a decision. Sixty-three synthetic delegated tasks in eight
-kinds, three attempts each (189 per entry), run on this workstation (RTX 4090, 24 GB)
-with a 16,384-token context and an 8,192-token output allowance. Replies were graded
+kinds, three attempts each (189 per entry), run on the workstation this note assumed
+(an RTX 4090 with 24 GB) with a 16,384-token context and an 8,192-token output
+allowance. That card is not the current hardware. The current machine is a Ryzen 7
+9800X3D with an AMD Radeon RX 9070 XT (16 GB). The counts below are kept as recorded
+and have not been re-run on the current card. Replies were graded
 by the automatic checks in `freya/evaluation/delegation_tasks.py` as they stood after
 the checks were tightened; every stored reply was graded again with those checks. A
 pass means the automatic checks passed, not that a person reviewed the reply. The

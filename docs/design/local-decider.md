@@ -65,8 +65,8 @@ vendors are their own and were not reproduced here.
 | Confidence | Calibrated probability on every answer; vendor ECE 0.144 on typed-decisions | Probabilities; ships over-confident (ECE 0.466, 0.081 after per-type temperature) | None; the regex is certain, the LLM's JSON has no probability | Jev on paper; Laya shows calibration must be fitted, not assumed | Yes, with Freya fitting its own temperatures on held-out data (NEW-CM) |
 | Abstaining | Not described | An act/escalate head, which its authors report has no usable signal | The LLM's `uncertain` option in `compare_memories` | Freya's explicit option is honest; Laya's head is not usable | Abstain by threshold in code, not a learned head (NEW-CN) |
 | Training | RLCD, undisclosed detail, synthetic data | RLCD described: REINFORCE with group-mean baseline, proper scoring rules, plus distillation from a teacher's distributions | None (prompts) | Laya: reproducible | Yes: distil from Freya's 27B model, then fit on owner-checked labels |
-| Fine-tuning | Not offered | Notebooks; ~4–5 h on 2×T4 for 6,000 decisions | Not applicable | Laya | Yes; the 4090 is several times a T4 |
-| Speed | 70–500 ms, network included | ~33–40 ms per question on a T4 (authors) | Regex ~0; 27B JSON several seconds | Laya locally | Expect tens of ms on the 4090, a few hundred on the processor (to measure) |
+| Fine-tuning | Not offered | Notebooks; ~4–5 h on 2×T4 for 6,000 decisions | Not applicable | Laya | Yes; the RX 9070 XT is several times a T4 |
+| Speed | 70–500 ms, network included | ~33–40 ms per question on a T4 (authors) | Regex ~0; 27B JSON several seconds | Laya locally | Expect tens of ms on the RX 9070 XT, a few hundred on the processor (to measure) |
 | Accuracy | 67.8% on TypeSafe's own workflows; matched a human on 500 calls in a LangChain test (secondary) | 0.766 on typed-decisions, the split it was fine-tuned on; base checkpoint near chance zero-shot; 0.425 on Banking77 (77 options) | Measured only for delegation work, not for these decisions | Unknown for Freya's questions | Measure on Freya's own sets before trusting either (NEW-CQ) |
 | Many options | Not stated | Keep under ~20 options | Tool list is ~15 | Neither for large lists | Keep Freya's questions small; split large ones |
 | Determinism | Not stated | Batch shape can shift results slightly | Regex deterministic; LLM sampled | Freya's rules | Run one question per pass, fixed precision, so the same input gives the same answer (NEW-CO) |
@@ -197,8 +197,9 @@ Built in three stages; each one is useful by itself and gated by measurements.
 2. **Freya's decider.** Fine-tune from Laya's checkpoint (or from the ModernBERT-large
    base it is built on, also Apache 2.0) with heads for the three question types,
    trained by distillation from `qwen3.8:27b`'s answers and proper scoring rules
-   against owner-checked labels. Training runs on the 4090 in the decider's own
-   environment, in hours, not days.
+   against owner-checked labels. Training runs on the RX 9070 XT in the decider's own
+   environment, in hours, not days. The earlier draft of this note assumed an RTX
+   4090; that card is not the current hardware.
 3. **Learning from use (later, owner's choice).** Shadow decisions and their outcomes
    become new training data, reviewed before use. Retraining is a reviewed step that
    produces a new weights digest, never something Freya does to herself unattended
@@ -296,13 +297,16 @@ path's answer is used.
    `decider/workers/laya_worker.py`, `python -m freya.decider.install laya`; weights
    pinned to the commit Laya's authors list as reviewed; the cloud machine that wrote
    it cannot reach Hugging Face, so the first real numbers come from the owner's PC). Its environment and helper, installed by the owner like a speech
-   engine; a measurement run on the 4090.
+   engine; a measurement run on the RX 9070 XT. The earlier note assumed an RTX 4090,
+   which is not the current hardware.
 2a. **Open decision models in shadow** (built, 2026-11-06, not yet run:
    `decider/systemone_decider.py`, `evaluation/decider_bench.py`,
    `python -m freya.decider.install candidates`). The owner asked for the five
    best-suited open models to be benchmarked against the rules and Laya. Chosen from
-   Ollaya Bench's public results (edition 2026.10, RTX 5090) for accuracy,
-   calibration, licence and fit beside `qwen3.8:27b` on 24 GB:
+   Ollaya Bench's public results (edition 2026.10, their RTX 5090, not this
+   machine) for accuracy, calibration, licence and fit beside `qwen3.8:27b` on
+   24 GB. That 24 GB budget was the assumed RTX 4090, not the current RX 9070 XT
+   (16 GB):
 
    | Model | Author | Licence | Size | Ollaya Bench score | Memory there |
    | --- | --- | --- | --- | --- | --- |

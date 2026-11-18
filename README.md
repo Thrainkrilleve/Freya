@@ -1,20 +1,84 @@
 # Freya
 
-Freya is a local-first, modular, multi-user agentic AI platform. The alpha
-runs on one Windows 11 workstation. Chat and embeddings go to Ollama on
-`127.0.0.1:11434`. The default chat model is `qwen3.8:27b` and the embedding
-model is `nomic-embed-text`. `FREYA_MODEL` names another installed Ollama model.
+Freya is a local-first, modular, multi-user agentic AI platform. It runs on
+Windows, Linux, and macOS. The owner's machine is a Windows 11 workstation
+with a Ryzen 7 9800X3D and an AMD Radeon RX 9070 XT (16 GB). Chat and
+embeddings go to Ollama on `127.0.0.1:11434`. If `FREYA_MODEL` is unset, the
+chat model is `qwen3.8:27b`. The embedding model is `nomic-embed-text`.
 
-## Run
+## Quick start
 
 Python 3.12 (`>=3.12,<3.13`). From a checkout, `uv sync` installs the locked
-dependencies into `.venv`.
+dependencies into `.venv`. Ollama must already be running on this machine
+with the chat model installed.
+
+```
+uv sync
+FREYA_MODEL=qwen3.5-4b-mtp freya
+```
+
+On Windows PowerShell the same choice is `$env:FREYA_MODEL = "qwen3.5-4b-mtp"`
+before `freya`. `qwen3.5-4b-mtp` is only an example of `FREYA_MODEL`. It is
+not the default, and Freya does not download it.
 
 - `freya` starts the console and the window.
 - `freya-window` starts the window only, with no console.
 - `python -m freya` is the same entry as `freya`.
 
 Image generation uses ComfyUI on `127.0.0.1:8188` when a picture is asked for.
+
+## Graphics cards
+
+Live GPU status (`system.gpu`), model fit (`python -m freya.gpu fit`), and
+the free-memory check before a large speech engine all use `freya.gpu.status`.
+Cards are read AMD first, then Intel, then NVIDIA. Within one vendor, a card
+that reported dedicated memory is listed before that vendor's integrated
+adapter. Model fit and the speech check use the first card that reported a
+dedicated total, so an integrated adapter does not hide a discrete card. If
+that card's free memory was not reported, speech does not borrow another
+card's number. A missing tool does not crash the probe: the fields it would
+have filled stay null.
+
+| Vendor | Linux and macOS | Windows |
+| --- | --- | --- |
+| AMD | `rocm-smi` and `amd-smi` when they are on `PATH`. Also `/sys/class/drm/card*/device/mem_info_vram_total`, `mem_info_vram_used`, and `gpu_busy_percent`. | `amd-smi` and `rocm-smi` when present. Otherwise WMI (`Win32_VideoController`), DXGI dedicated video memory, and the display-class registry value `HardwareInformation.qwMemorySize`. |
+| Intel | `xpu-smi discovery` and `xpu-smi stats` when present. i915 local memory is `lmem_total_bytes`. xe local memory is `physical_vram_size_bytes` and, when the driver exports it, `physical_vram_used_bytes`. | The same `xpu-smi` commands when present, then the same WMI, DXGI, and registry sources as AMD. |
+| NVIDIA | `nvidia-smi` (name, temperature, utilization, total, used, free). | The same `nvidia-smi` query. The Windows adapter list can still name the card when `nvidia-smi` is absent. |
+
+macOS uses the Linux tool list. Those tools are usually absent, and the
+probe then reports no card.
+
+`AdapterRAM` values at the 32-bit 4 GB ceiling are not treated as the card's
+memory. An integrated adapter, such as Intel UHD on an Alder Lake N95, is
+reported as Intel with `memory_kind` `shared` and no dedicated total. Shared
+system memory from DXGI is not reported as VRAM.
+
+Intel Arc parsing is covered by fixtures (xpu-smi text, i915 and xe sysfs,
+and Windows WMI/DXGI adapter rows). It has not been run on a real Arc card.
+This workstation does not have one.
+
+## Folders and documents
+
+The model can list, read, and search files only in folders the owner has
+opened, and only for reading. Nothing is open until the owner runs
+`/folder open <full path>`. `/folder close <full path>` removes one.
+`/folders` lists them. There is no tool that writes files.
+
+Chat document uploads are not supported. A chat turn is text. Binary uploads
+on the window socket are for a voice-studio recording or a media transcript
+import, not for attaching a document to the conversation.
+
+## Recent changes
+
+- Background model calls (memory decisions, summaries, and the other unseen
+  work around a turn) send `think` false. Set `FREYA_BACKGROUND_THINK` to
+  `on`, `low`, `medium`, `high`, or `xhigh` to turn that back on for those
+  calls. `off` and any other value stay off. Freya's own replies are
+  unchanged. This landed in PR #28.
+- Federation profiling measures graphics AMD first, then Intel Arc, then
+  NVIDIA, and writes profile version 2 (`runtimes` on each card). A version
+  1 offer, which only listed NVIDIA cards and has no `runtimes`, still loads.
+  This landed in PR #29.
 
 ## Off until the owner turns them on
 

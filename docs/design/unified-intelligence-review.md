@@ -27,7 +27,10 @@ six-layer model alongside it.
    contributions are allowed, Freya stays owner of the conversation and the task, and
    spoken turns carry only Freya's own interpretation.
 5. **Checkable verification instead of multi-model voting.** Tests, tool re-execution,
-   citations and schema checks beat reconciling opinions on one RTX 4090.
+   citations and schema checks beat reconciling opinions on one graphics card. This
+   review assumed an RTX 4090 with 24 GB. That is not the current hardware, which is
+   a Ryzen 7 9800X3D and an AMD Radeon RX 9070 XT with 16 GB. Live GPU reads are AMD
+   first, then Intel Arc, then NVIDIA.
 
 The biggest risk is scope, not design: the governance core exists, but there is no
 router, task journal, approval service, second user or sandbox, and nine of the ten
@@ -102,8 +105,10 @@ Interfaces to define (names provisional): `ModelCatalogEntry`, `RouteRequest` /
   token budget per slot.
 - **Interrupts:** cancellation token checked between chunks, tool rounds and steps; a
   user message during a task is an orchestrator event, not queued behind the task.
-- **RTX 4090:** one resident front-of-house model, specialists on demand, reservations
-  before load, routing on a local benchmark catalog.
+- **One graphics card:** one resident front-of-house model, specialists on demand,
+  reservations before load, routing on a local benchmark catalog. This review assumed
+  an RTX 4090 with 24 GB, which is not the current hardware (Ryzen 7 9800X3D, RX 9070
+  XT, 16 GB).
 - **Verification:** mechanical first (tests, sources, journal comparison), model review
   only for what mechanics cannot check.
 
