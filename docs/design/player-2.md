@@ -1,6 +1,10 @@
 # Design proposal: Player 2 (Freya in a game)
 
-**Status: draft proposal, written 2026-11-18. Nothing here is built.** It records
+**Status: draft proposal, written 2026-11-18. M0 is implemented in
+`src/freya/player`: the schema, the mock, the planner loop, the owner kill
+switch, the fixed control indicator, and the action record. The control
+plane registers no play capability. Core does not import the package. M1
+and later are not built. No game is played.** It records
 a vision from the main developer, with constraints Thrain added the same day.
 It approves no ADR, adopts no pending amendment, and assigns no requirement
 ID. ADR-015 stays **Not approved**. Requirements carry the provisional labels
@@ -27,6 +31,8 @@ which would reserve the card, are not approved. `freya.federation` can record
 an offer and Thrain's approval; it sends nothing, and Core does not import it.
 
 So the first build is a contract and a mock, not a bot in a live game.
+That build is M0, in `src/freya/player`, with tests in `tests/test_player.py`.
+The milestones after it are not started.
 
 ## 2. What stays, what this extends, what this does not replace
 
@@ -452,12 +458,12 @@ observations are not brief inputs (NEW-EP).
 
 ## 8. Milestones
 
-Each one can fail without enabling the next. None of them is started by
-this document.
+Each one can fail without enabling the next. This document does not start
+them. M0 is now in the tree; the milestones after it are not.
 
 | Milestone | Exit | Tests that must already pass |
 | --- | --- | --- |
-| M0. Schema and a mock game | A Python mock speaks the schema. No Node, no network, no capability registered, Core does not import the package. | P2-1, P2-2, P2-8, P2-13, P2-14 |
+| M0. Schema and a mock game | Implemented in `src/freya/player`. A Python mock speaks the schema. No Node, no network, no capability registered by the control plane, Core does not import the package. | P2-1, P2-2, P2-8, P2-13, P2-14, in `tests/test_player.py`. A green run is not owner acceptance. |
 | M1. Minecraft companion | Mineflayer, owner-installed, joins a private local world on loopback, follows, speaks with Thrain through the existing voice path, and fetches an item he asked for. | M0, plus P2-3, P2-4, P2-5, P2-7, P2-9 |
 | M2. Tasks and memory | A schema task (mine, craft, or place) finishes in the mock and in a local world, and a build fact is recalled after a restart and removed by `/forget`. | P2-6 |
 | M3. Playstyle | Suggestions cite memories of sessions he agreed to keep. They add no action and no rule. Nothing is trained. | P2-6, and a test that a suggestion cannot widen the schema |
@@ -468,7 +474,9 @@ this document.
 
 ## 9. Acceptance tests (provisional)
 
-All of these are code. None of them is claimed to pass now.
+All of these are code. P2-1, P2-2, P2-8, P2-13 and P2-14 have tests in
+`tests/test_player.py`. A green run is not owner acceptance. The rest are
+not built.
 
 | ID | Pass |
 | --- | --- |
@@ -490,8 +498,9 @@ All of these are code. None of them is claimed to pass now.
 
 ## 10. What it costs, and what it does not do
 
-M0 is a Python package and tests. M1 adds a Node program the owner
-installs, and GPU time only if the planner is local. Remote planning waits
+M0 is the package `src/freya/player` and `tests/test_player.py`. M1 adds
+a Node program the owner installs, and GPU time only if the planner is
+local. Remote planning waits
 on the worker channel and on an explicit allow for play plans. There is no
 new secret, no new database, and no edit to ADR-015.
 

@@ -57,6 +57,13 @@ OWNER_ONLY_CAPABILITIES = (
     "cloud.anthropic_plan.ask",
     "cloud.settings.change",
     "code.run",
+    # Play is owner-only. None of these is a model tool. The control
+    # plane does not register them; the names are here so a later
+    # registration cannot offer them to the model by accident.
+    "play.stop",
+    "play.act",
+    "play.observe",
+    "play.project",
 )
 
 # The cloud route may be allowed only by the rule the owner's switch in

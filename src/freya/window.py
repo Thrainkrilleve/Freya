@@ -8,6 +8,7 @@ from typing import Callable, Optional
 from freya.child_environment import child_environment
 from freya.core.providers import ProviderHealth
 from freya.gateway.server import DEFAULT_PORT, Gateway
+from freya.player.indicator import IN_CONTROL, PAUSED
 from freya.providers.image.comfyui import COMFYUI_PROVIDER
 from freya.providers.model.ollama import OLLAMA_PROVIDER
 from freya.paths import data_dir
@@ -83,9 +84,13 @@ class WindowActions:
     avatar_file: Callable[[str, str], Optional[tuple]] = lambda kind, model: None
 
 
-def build_status(listener, settings, control_plane, voice=None) -> dict:
+def build_status(listener, settings, control_plane, voice=None, play_state=None) -> dict:
     """
     The few facts the window's status strip shows.
+
+    `play_state` is shown only when it is one of the two fixed Player 2
+    labels. Any other string, including one a model produced, is left
+    off the strip.
     """
     if listener is None or not listener.running:
         microphone = "off"
@@ -104,7 +109,7 @@ def build_status(listener, settings, control_plane, voice=None) -> dict:
     else:
         images = "unavailable"
 
-    return {
+    status = {
         "microphone": microphone,
         "names": [name.title() for name in settings.wake_names],
         "model": providers.get(OLLAMA_PROVIDER).health.value,
@@ -112,6 +117,9 @@ def build_status(listener, settings, control_plane, voice=None) -> dict:
         "volume": getattr(settings, "voice_volume", 100),
         **({"voice": "ready" if voice.enabled else "unavailable"} if voice is not None else {}),
     }
+    if play_state in (IN_CONTROL, PAUSED):
+        status["play"] = play_state
+    return status
 
 
 def _edge_path():

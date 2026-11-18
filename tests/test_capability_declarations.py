@@ -18,6 +18,7 @@ from freya.core.policy import SqlitePolicyEngine
 from freya.core.providers import ProviderDefinition, ProviderRegistry
 from freya.decider.service import register_decide
 from freya.media.service import MediaService
+from freya.player.service import PLAY_STOP, register_play_stop
 from freya.providers.model.claude_plan import register_claude_plan_capability
 from freya.sandbox.contract import SandboxProfile
 from freya.sandbox.service import register_code_run
@@ -125,6 +126,7 @@ def test_voice_and_task_capabilities_are_declared_at_startup(tmp_path, monkeypat
         assert set(VOICE_CAPABILITIES) <= set(found)
         assert "task.create" not in found
         assert "code.run" not in found
+        assert "play.stop" not in found
 
         for name in VOICE_CAPABILITIES:
             _assert_complete(found[name])
@@ -145,6 +147,7 @@ def test_voice_and_task_capabilities_are_declared_at_startup(tmp_path, monkeypat
         assert set(TASK_CAPABILITIES) <= set(found)
         assert "code.run" not in found
         assert "decide" not in found
+        assert "play.stop" not in found
 
         for name in TASK_CAPABILITIES:
             _assert_complete(found[name])
@@ -159,7 +162,10 @@ def test_the_control_plane_registry_is_fully_declared(tmp_path, fake_ollama):
     try:
         found = plane.capabilities.list_capabilities()
         assert found
-        assert {item.name for item in found}.isdisjoint({"code.run", "decide"})
+        assert {item.name for item in found}.isdisjoint({
+            "code.run", "decide", "play.stop", "play.act",
+            "play.observe", "play.project",
+        })
 
         for capability in found:
             _assert_complete(capability)
@@ -215,6 +221,7 @@ def test_every_other_producer_declares_its_capabilities():
 
     register_decide(registry, Decider())
     register_claude_plan_capability(registry, lambda text: None)
+    register_play_stop(registry, lambda: None)
 
     names = {item.name for item in registry.list_capabilities()}
     assert {"files.list", "files.read", "files.search", WORLD_SHOW, WORLD_CAMERAS, WORLD_MILITARY} <= names
@@ -233,6 +240,9 @@ def test_every_other_producer_declares_its_capabilities():
     assert not cameras.declaration.consequential
     assert registry.get("code.run").declaration.consequential
     assert not registry.get("decide").declaration.consequential
+    assert PLAY_STOP in names
+    assert registry.get(PLAY_STOP).declaration.consequential
+    assert registry.get(PLAY_STOP).metadata.get("model_tool") is not True
     assert registry.get("media.delete").destructive
 
 
