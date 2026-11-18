@@ -11,6 +11,14 @@ caller, so the child cannot write the status strip.
 import json
 import math
 
+from freya.player.minecraft.goals import (
+    COAL_BLOCKS,
+    FOOD_BLOCKS,
+    FOOD_MOBS,
+    LOGS,
+    ORE_BLOCKS,
+    STRUCTURE_BLOCKS,
+)
 from freya.player.schema import (
     ENTITY_KINDS,
     MAX_OBSERVATION_BYTES,
@@ -26,6 +34,8 @@ _ENTITIES = 6
 _INVENTORY = 8
 _CHAT = 3
 _THREATS = 8
+_TARGET_BLOCKS = LOGS | ORE_BLOCKS | COAL_BLOCKS | FOOD_BLOCKS
+_LOCAL_FILL = 4
 
 
 def summarize(raw, *, adapter, control, status=None) -> dict:
@@ -46,8 +56,8 @@ def summarize(raw, *, adapter, control, status=None) -> dict:
     food = _unit(raw.get("food"), 0, 20)
     if food is not None:
         body["food"] = food
-    clock = raw.get("time_of_day")
-    if isinstance(clock, int) and not isinstance(clock, bool) and 0 <= clock <= 24000:
+    clock = _clock(raw.get("time_of_day"))
+    if clock is not None:
         body["time_of_day"] = clock
     held = _bare(raw.get("held"))
     if held and plain_text(held, 64) and item_name(held):
@@ -62,19 +72,20 @@ def summarize(raw, *, adapter, control, status=None) -> dict:
         body["inventory"] = inventory[:_INVENTORY]
 
     blocks = [block for block in (_block(entry) for entry in raw.get("blocks") or []) if block]
-    blocks.sort(key=lambda block: _near(position, block))
-    if blocks:
-        body["blocks"] = blocks[:_BLOCKS]
+    chosen = _choose_blocks(blocks, position)
+    if chosen:
+        body["blocks"] = chosen
 
     entities = [entity for entity in (_entity(entry) for entry in raw.get("entities") or []) if entity]
-    entities.sort(key=lambda entity: _near(position, entity))
-    if entities:
-        body["entities"] = entities[:_ENTITIES]
+    chosen_entities = _choose_entities(entities, position)
+    if chosen_entities:
+        body["entities"] = chosen_entities
 
     threats = []
     for name in raw.get("threats") or []:
-        if plain_text(name, 80) and name not in threats:
-            threats.append(name)
+        text = _threat_name(name)
+        if text and text not in threats:
+            threats.append(text)
     for entity in body.get("entities") or []:
         if entity["kind"] == "hostile" and entity["name"] not in threats:
             threats.append(entity["name"])
@@ -136,6 +147,93 @@ def _fit(body) -> dict:
 def _size(body) -> int:
     encoded = json.dumps(body, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
     return len(encoded.encode("utf-8"))
+
+
+def _clock(value):
+    """A day tick in 0..24000. Floats and a running world age are wrapped."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    if not math.isfinite(value):
+        return None
+    clock = math.floor(value)
+    if 0 <= clock <= 24000:
+        return int(clock)
+    wrapped = int(clock % 24000)
+    if wrapped < 0:
+        wrapped += 24000
+    return wrapped
+
+
+def _threat_name(name) -> str:
+    text = _bare(name)
+    if text and plain_text(text, 80) and item_name(text):
+        return text
+    return ""
+
+
+def _choose_blocks(blocks, origin):
+    """
+    Keep a log or ore that is farther than the stone underfoot.
+
+    Structures (the shelter, a table, a furnace) take up to four slots.
+    One of each searched group is kept before the nearest filler.
+    """
+    ordered = sorted(blocks, key=lambda block: _near(origin, block))
+    chosen = []
+    used = set()
+
+    def add(block) -> bool:
+        key = (block["name"], block["x"], block["y"], block["z"])
+        if key in used or len(chosen) >= _BLOCKS:
+            return False
+        used.add(key)
+        chosen.append(block)
+        return True
+
+    structures = [block for block in ordered if _bare(block["name"]) in STRUCTURE_BLOCKS]
+    for block in structures[:4]:
+        add(block)
+    for group in (LOGS, ORE_BLOCKS, COAL_BLOCKS, FOOD_BLOCKS):
+        for block in ordered:
+            if _bare(block["name"]) in group and add(block):
+                break
+    targets = [block for block in ordered if _bare(block["name"]) in _TARGET_BLOCKS]
+    for block in targets:
+        if len(chosen) >= _BLOCKS:
+            break
+        if sum(1 for item in chosen if _bare(item["name"]) not in STRUCTURE_BLOCKS) >= _LOCAL_FILL:
+            break
+        add(block)
+    for block in ordered:
+        if len(chosen) >= _BLOCKS:
+            break
+        add(block)
+    return chosen
+
+
+def _choose_entities(entities, origin):
+    """Hostiles and food mobs are kept even when a player stands closer."""
+    ordered = sorted(entities, key=lambda entity: _near(origin, entity))
+    chosen = []
+    used = set()
+
+    def add(entity) -> None:
+        key = (entity["name"], entity["kind"], entity["x"], entity["y"], entity["z"])
+        if key in used or len(chosen) >= _ENTITIES:
+            return
+        used.add(key)
+        chosen.append(entity)
+
+    for entity in ordered:
+        if entity["kind"] == "hostile" or _bare(entity["name"]) in FOOD_MOBS:
+            add(entity)
+        if len(chosen) >= 4:
+            break
+    for entity in ordered:
+        if len(chosen) >= _ENTITIES:
+            break
+        add(entity)
+    return chosen
 
 
 def _bare(name) -> str:

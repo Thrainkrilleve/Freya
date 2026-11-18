@@ -25,6 +25,19 @@ const FOOD = new Set([
   'melon_slice', 'cookie', 'pumpkin_pie', 'beef', 'porkchop',
   'chicken', 'mutton', 'rabbit', 'potato', 'rotten_flesh',
 ])
+const SEARCH_RADIUS = 48
+const SEARCH_NAMES = new Set([
+  'oak_log', 'spruce_log', 'birch_log', 'jungle_log', 'acacia_log',
+  'dark_oak_log', 'mangrove_log', 'cherry_log', 'pale_oak_log',
+  'crimson_stem', 'warped_stem',
+  'iron_ore', 'deepslate_iron_ore', 'coal_ore', 'deepslate_coal_ore',
+  'stone', 'cobblestone',
+  'sweet_berry_bush', 'wheat', 'carrots', 'potatoes', 'melon', 'pumpkin',
+  'oak_planks', 'spruce_planks', 'birch_planks', 'jungle_planks',
+  'acacia_planks', 'dark_oak_planks', 'mangrove_planks', 'cherry_planks',
+  'pale_oak_planks', 'crimson_planks', 'warped_planks',
+  'crafting_table', 'furnace',
+])
 const HOSTILE = new Set([
   'zombie', 'skeleton', 'creeper', 'spider', 'cave_spider', 'enderman',
   'witch', 'slime', 'drowned', 'husk', 'stray', 'pillager', 'vindicator',
@@ -86,6 +99,18 @@ function bare (name) {
   return String(name || '').split(':').pop()
 }
 
+function listenForPhysics (target) {
+  const methods = ['on', 'once', 'addListener', 'prependListener', 'prependOnceListener']
+  for (const method of methods) {
+    const original = target[method]
+    if (typeof original !== 'function') continue
+    target[method] = function (event, listener) {
+      const name = event === 'physicTick' ? 'physicsTick' : event
+      return original.call(this, name, listener)
+    }
+  }
+}
+
 let config
 try {
   config = readConfig()
@@ -112,6 +137,9 @@ const options = {
 if (config.version) options.version = config.version
 
 const bot = mineflayer.createBot(options)
+// mineflayer-pvp 1.3.2 still subscribes to the old name. Mineflayer
+// warns on that subscription. Physics itself emits physicsTick.
+listenForPhysics(bot)
 bot.loadPlugin(pathfinderMod.pathfinder)
 bot.loadPlugin(pvpMod.plugin)
 bot.loadPlugin(collectMod.plugin)
@@ -267,9 +295,20 @@ async function digAction (args) {
   if (typeof args.x === 'number') {
     block = bot.blockAt(new Vec3(args.x, args.y, args.z))
   } else if (args.block) {
-    block = findBlockName(args.block, 64)
+    block = findBlockName(args.block, SEARCH_RADIUS)
   }
-  if (!block || block.name === 'air') throw new Error('fail')
+  if (!block || block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') {
+    throw new Error('fail')
+  }
+  const distance = bot.entity.position.distanceTo(block.position)
+  if (distance > 4 && pluginOfGoal()) {
+    const pos = block.position
+    await withTimeout(pluginOfGoal().goto(new goals.GoalNear(pos.x, pos.y, pos.z, 2)), 20000)
+    block = bot.blockAt(block.position) || block
+  }
+  if (!block || block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') {
+    throw new Error('fail')
+  }
   if (bot.tool && bot.tool.equipForBlock) {
     try { await bot.tool.equipForBlock(block, {}) } catch (err) { /* dig anyway */ }
   }
@@ -528,32 +567,12 @@ function observe () {
     if (inventory.length >= 12) break
     inventory.push({ item: name, count: Math.max(1, Math.min(999, count)) })
   }
-  const origin = pos.floored()
-  const found = []
-  for (let dx = -3; dx <= 3; dx++) {
-    for (let dy = -2; dy <= 2; dy++) {
-      for (let dz = -3; dz <= 3; dz++) {
-        const block = bot.blockAt(origin.offset(dx, dy, dz))
-        if (!block || block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') continue
-        found.push({
-          name: block.name,
-          x: block.position.x,
-          y: block.position.y,
-          z: block.position.z,
-          d: dx * dx + dy * dy + dz * dz,
-        })
-      }
-    }
-  }
-  found.sort((a, b) => a.d - b.d)
-  const blocks = found.slice(0, 8).map((block) => ({
-    name: block.name, x: block.x, y: block.y, z: block.z,
-  }))
+  const blocks = observeBlocks(pos)
   const entities = []
   for (const entity of Object.values(bot.entities)) {
     if (!entity || entity === bot.entity || !entity.position) continue
     if (entity.name === 'item' || entity.type === 'object') continue
-    const name = entity.username || entity.name
+    const name = bare(entity.username || entity.name)
     if (!name) continue
     let kind = 'passive'
     if (entity.type === 'player' || entity.username) kind = 'player'
@@ -571,11 +590,12 @@ function observe () {
     })
   }
   entities.sort((a, b) => a.d - b.d)
-  const trimmed = entities.slice(0, 6).map(({ d, ...rest }) => rest)
+  const trimmed = entities.slice(0, 12).map(({ d, ...rest }) => rest)
   const threats = trimmed.filter((entity) => entity.kind === 'hostile').map((entity) => entity.name)
   let clock = 0
   if (bot.time && Number.isFinite(bot.time.timeOfDay)) {
-    clock = Math.floor(bot.time.timeOfDay) % 24001
+    clock = Math.floor(Number(bot.time.timeOfDay)) % 24000
+    if (clock < 0) clock += 24000
   }
   const moving = Boolean(
     pluginOfGoal() && typeof pluginOfGoal().isMoving === 'function' && pluginOfGoal().isMoving()
@@ -594,6 +614,71 @@ function observe () {
   if (bot.heldItem && bot.heldItem.name) body.held = bot.heldItem.name
   if (recentChat.length) body.chat = recentChat.slice(-3)
   return body
+}
+
+function observeBlocks (pos) {
+  const origin = pos.floored()
+  const found = []
+  for (let dx = -3; dx <= 3; dx++) {
+    for (let dy = -2; dy <= 2; dy++) {
+      for (let dz = -3; dz <= 3; dz++) {
+        const block = bot.blockAt(origin.offset(dx, dy, dz))
+        if (!block || block.name === 'air' || block.name === 'cave_air' || block.name === 'void_air') continue
+        found.push({
+          name: block.name,
+          x: block.position.x,
+          y: block.position.y,
+          z: block.position.z,
+          d: dx * dx + dy * dy + dz * dz,
+        })
+      }
+    }
+  }
+  found.sort((a, b) => a.d - b.d)
+  const nearby = found.slice(0, 16).map((block) => ({
+    name: block.name, x: block.x, y: block.y, z: block.z,
+  }))
+  return mergeBlocks(searchTargets(), nearby)
+}
+
+function searchTargets () {
+  if (!bot.entity || typeof bot.findBlocks !== 'function') return []
+  let points = []
+  try {
+    points = bot.findBlocks({
+      matching: (block) => Boolean(block && SEARCH_NAMES.has(block.name)),
+      maxDistance: SEARCH_RADIUS,
+      count: 24,
+    }) || []
+  } catch (err) {
+    return []
+  }
+  const found = []
+  for (const point of points) {
+    const block = bot.blockAt(point)
+    if (!block || !SEARCH_NAMES.has(block.name)) continue
+    found.push({
+      name: block.name,
+      x: block.position.x,
+      y: block.position.y,
+      z: block.position.z,
+    })
+    if (found.length >= 16) break
+  }
+  return found
+}
+
+function mergeBlocks (targets, nearby) {
+  const seen = new Set()
+  const merged = []
+  for (const block of targets.concat(nearby)) {
+    const key = block.name + ':' + block.x + ':' + block.y + ':' + block.z
+    if (seen.has(key)) continue
+    seen.add(key)
+    merged.push({ name: block.name, x: block.x, y: block.y, z: block.z })
+    if (merged.length >= 24) break
+  }
+  return merged
 }
 
 function flee () {
@@ -707,6 +792,10 @@ async function handle (message) {
     if (message.method === 'halt') {
       haltMotion()
       reply({ id, ok: true, result: { status: 'paused' } })
+      return
+    }
+    if (message.method === 'ready') {
+      reply({ id, ok: true, result: { spawned: inWorld() } })
       return
     }
     if (message.method === 'observe') {
